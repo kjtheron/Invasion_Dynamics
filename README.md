@@ -1,2 +1,2 @@
 # Invasion_Dynamics
-Grasshopper and vegetation data with accompanying code used in "Mapping an alien invasive shrub within conservation corridors using super-resolution satellite imagery" manuscript. 
+Grasshopper and vegetation data with accompanying code used in "Mapping an alien invasive shrub within conservation corridors using super-resolution satellite imagery" manuscript. PlanetScope imagery can be ordered from Planet Labs (https://www.planet.com/explorer/). Sentinel 2 image can be downloaded from Copernicus Open Access Hub (https://scihub.copernicus.eu/dhus). The 5 m resolution DEM can be ordered from GeoSmart space (https://geosmart.space/).

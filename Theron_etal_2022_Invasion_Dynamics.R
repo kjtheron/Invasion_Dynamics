@@ -25,6 +25,9 @@ library(glmmTMB)
 library(MuMIn)
 library(DHARMa)
 library(performance)
+library(VSURF)
+library(scutr)
+library(car)
 
 # Community
 library(mvabund)
@@ -32,7 +35,7 @@ library(ade4)
 library(vegan)
 
 # Set working directory
-setwd("~/")
+setwd("~/Desktop/")
 
 ###########################################################################
 # How wide-spread is bramble, and what is causing higher bramble abundance?
@@ -109,10 +112,10 @@ writeRaster(PS,filename="Products/Cliped_PS.tif",format="GTiff",overwrite=TRUE)
 rm(Estate1,Estate2,Estate3,Estate4,PS)
 
 # Clip and process super resolution
-predict_ms210<-stack("Raster_Data/Super_Resolve/Bramble_decjan2019_Results/SuperResolution/predict_ms210.tif")
+predict_ms210<-stack("Raster_Data/Super_Resolve/predict_ms210.tif")
 predict_ms210<-crop(predict_ms210,Study_ROI)
 predict_ms210<-mask(predict_ms210,Study_ROI)
-predict_ms220<-stack("Raster_Data/Super_Resolve/Bramble_decjan2019_Results/SuperResolution/predict_ms220.tif")
+predict_ms220<-stack("Raster_Data/Super_Resolve/predict_ms220.tif")
 predict_ms220<-crop(predict_ms220,Study_ROI)
 predict_ms220<-mask(predict_ms220,Study_ROI)
 SR_S2<-stack(predict_ms210,predict_ms220)
@@ -122,6 +125,72 @@ names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
 writeRaster(SR_S2,filename="Products/Cliped_SR_S2.tif",format="GTiff",overwrite=TRUE)
 rm(Study_ROI,predict_ms210,predict_ms220,SR_S2)
 
+#### Create vegetation indices ####
+#https://custom-scripts.sentinel-hub.com/sentinel-2/ndvi/
+#https://custom-scripts.sentinel-hub.com/sentinel-2/gndvi/
+#https://custom-scripts.sentinel-hub.com/sentinel-2/nbr/#
+#https://custom-scripts.sentinel-hub.com/sentinel-2/savi/
+#https://custom-scripts.sentinel-hub.com/sentinel-2/evi/
+#https://custom-scripts.sentinel-hub.com/sentinel-2/red_edge_position/#
+#https://custom-scripts.sentinel-hub.com/sentinel-2/msi/#
+#https://custom-scripts.sentinel-hub.com/sentinel-2/ndmi/#
+#https://custom-scripts.sentinel-hub.com/sentinel-2/ndwi/#
+#https://custom-scripts.sentinel-hub.com/sentinel-2/chl_rededge/#
+
+# Sentinel 2
+S2<-stack("Products/Cliped_S2.tif")
+names(S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2")
+NDVI<-(S2[["Infrared"]]-S2[["Red"]])/(S2[["Infrared"]]+S2[["Red"]])
+gNDVI<-(S2[["Infrared"]]-S2[["Green"]])/(S2[["Infrared"]]+S2[["Green"]])
+NBR<-(S2[["Infrared"]]-S2[["SWIR2"]])/(S2[["Infrared"]]+S2[["SWIR2"]])
+SAVI<-(S2[["Infrared"]]-S2[["Red"]])/(S2[["Infrared"]]+S2[["Red"]]+0.725)*(1*0.725)
+EVI<-(2.5*(S2[["Infrared"]]-S2[["Red"]])/((S2[["Infrared"]]+(6*S2[["Red"]])-(7.5*S2[["Blue"]]))+1))
+REPO<-(700+(40*((((S2[["Red"]]+S2[["RedEdge3"]])/2)-S2[["RedEdge1"]])/(S2[["RedEdge2"]]-S2[["RedEdge1"]]))))
+MSI<-S2[["SWIR1"]]/ S2[["RedEdge4"]]
+NDMI<-(S2[["Infrared"]]-S2[["SWIR1"]])/(S2[["Infrared"]]+S2[["SWIR1"]])
+NDWI<-(S2[["Green"]]-S2[["RedEdge4"]])/(S2[["Green"]]+S2[["RedEdge4"]])
+Chl_RE<-(S2[["RedEdge3"]]/S2[["RedEdge1"]])^(-1)
+PCA<-rasterPCA(S2,nComp=1)
+PCA<-PCA$map
+S2<-stack(S2,NDVI,gNDVI,NBR,SAVI,EVI,REPO,MSI,NDMI,NDWI,Chl_RE,PCA)
+writeRaster(S2,filename="Products/Cliped_S2_VI.tif",format="GTiff",overwrite=TRUE)
+rm(S2,NDVI,gNDVI,NBR,SAVI,EVI,REPO,MSI,NDMI,NDWI,Chl_RE,PCA)
+
+# PlanetScope
+PS<-stack("Products/Cliped_PS.tif")
+names(PS)<-c("Blue","Green","Red","Infrared")
+NDVI<-(PS[["Infrared"]]-PS[["Red"]])/(PS[["Infrared"]]+PS[["Red"]])
+gNDVI<-(PS[["Infrared"]]-PS[["Green"]])/(PS[["Infrared"]]+PS[["Green"]])
+SAVI<-(PS[["Infrared"]]-PS[["Red"]])/(PS[["Infrared"]]+PS[["Red"]]+0.725)*(1*0.725)
+EVI<-(2.5*(PS[["Infrared"]]-PS[["Red"]])/((PS[["Infrared"]]+(6*PS[["Red"]])-(7.5*PS[["Blue"]]))+1))
+NDWI<-(PS[["Green"]]-PS[["Infrared"]])/(PS[["Green"]]+PS[["Infrared"]])
+PCA<-rasterPCA(PS,nComp=1)
+PCA<-PCA$map
+PS<-stack(PS,NDVI,gNDVI,SAVI,EVI,NDWI,PCA)
+writeRaster(PS,filename="Products/Cliped_PS_VI.tif",format="GTiff",overwrite=TRUE)
+rm(PS,NDVI,gNDVI,SAVI,EVI,NDWI,PCA)
+
+# Super-resolved
+SR_S2<-stack("Products/Cliped_SR_S2.tif")
+names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2")
+NDVI<-(SR_S2[["Infrared"]]-SR_S2[["Red"]])/(SR_S2[["Infrared"]]+SR_S2[["Red"]])
+gNDVI<-(SR_S2[["Infrared"]]-SR_S2[["Green"]])/(SR_S2[["Infrared"]]+SR_S2[["Green"]])
+NBR<-(SR_S2[["Infrared"]]-SR_S2[["SWIR2"]])/(SR_S2[["Infrared"]]+SR_S2[["SWIR2"]])
+SAVI<-(SR_S2[["Infrared"]]-SR_S2[["Red"]])/(SR_S2[["Infrared"]]+SR_S2[["Red"]]+0.725)*(1*0.725)
+EVI<-(2.5*(SR_S2[["Infrared"]]-SR_S2[["Red"]])/((SR_S2[["Infrared"]]+(6*SR_S2[["Red"]])-(7.5*SR_S2[["Blue"]]))+1))
+REPO<-(700+(40*((((SR_S2[["Red"]]+SR_S2[["RedEdge3"]])/2)-SR_S2[["RedEdge1"]])/(SR_S2[["RedEdge2"]]-SR_S2[["RedEdge1"]]))))
+MSI<-SR_S2[["SWIR1"]]/ SR_S2[["RedEdge4"]]
+NDMI<-(SR_S2[["Infrared"]]-SR_S2[["SWIR1"]])/(SR_S2[["Infrared"]]+SR_S2[["SWIR1"]])
+NDWI<-(SR_S2[["Green"]]-SR_S2[["RedEdge4"]])/(SR_S2[["Green"]]+SR_S2[["RedEdge4"]])
+Chl_RE<-(SR_S2[["RedEdge3"]]/SR_S2[["RedEdge1"]])^(-1)
+PCA<-rasterPCA(SR_S2,nComp=1)
+PCA<-PCA$map
+SR_S2<-stack(SR_S2,NDVI,gNDVI,NBR,SAVI,EVI,REPO,MSI,NDMI,NDWI,Chl_RE,PCA)
+writeRaster(SR_S2,filename="Products/Cliped_SR_S2_VI.tif",format="GTiff",overwrite=TRUE)
+rm(SR_S2,NDVI,gNDVI,NBR,SAVI,EVI,REPO,MSI,NDMI,NDWI,Chl_RE,PCA)
+
 #### Process training data ####
 # Load points
 Training_Points<-read.csv("Excel_Sheets/Training_Points.csv")
@@ -130,191 +199,611 @@ Training_Points<-st_as_sf(Training_Points,coords=c("x","y"),crs=4326)
 Training_Points<-st_transform(Training_Points,crs=32736)
 
 # Extract training data for Sentinel imagery
-S2<-stack("Products/Cliped_S2.tif")
+S2<-stack("Products/Cliped_S2_VI.tif")
 names(S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
-             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2")
+             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+             "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+             "MSI","NDMI","NDWI","Chl_RE","PCA")
 df_S2<-raster::extract(S2,Training_Points,method="simple",df=TRUE)
 df_S2$ID=NULL
 Class<-as.matrix(Training_Points$Class)
 # Save csv file
 df_S2<-as.data.frame(cbind(df_S2,"Class"=Class))
 df_S2<-df_S2[complete.cases(df_S2),]
-write.csv(df_S2,"Products/df_S2.csv",row.names=FALSE)
-rm(Class,S2,Training_Points,df_S2)
-
-# Create buffers for extracting SR_S2 and PS
-# Load points
-Training_Points<-read.csv("Excel_Sheets/Training_Points.csv")
-# Project
-Training_Points<-st_as_sf(Training_Points,coords=c("x","y"),crs=4326)
-Training_Points<-st_transform(Training_Points,crs=32736)
-# Create buffer
-Training_Points<-st_buffer(Training_Points,2.5)
-st_write(Training_Points,"Products/Shapefiles/Training_Points_Buffer.shp")
+write.csv(df_S2,"Products/df_S2_VI.csv",row.names=FALSE)
+rm(Class,S2,df_S2)
 
 # Extract training data for PlanetScope imagery
-PS<-stack("Products/Cliped_PS.tif")
-names(PS)<-c("Blue","Green","Red","Infrared")
-template_rst<-raster(extent(PS[[1]]),resolution=3,crs=projection(PS[[1]]))
-Training_Points_rst<-fasterize(Training_Points,template_rst,field="ID")
-Training_Points_df<-as.data.frame(rasterToPoints(Training_Points_rst))
-colnames(Training_Points_df)<-c("x","y","ID")
-points<-SpatialPointsDataFrame(coords=Training_Points_df[,1:2],data=Training_Points_df,proj4string=Training_Points_rst@crs)
-writeOGR(points,"Products/Shapefiles/","Raster_to_Points_PS",driver="ESRI Shapefile")
-df_PS<-raster::extract(PS,points,method="simple",df=TRUE)
+PS<-stack("Products/Cliped_PS_VI.tif")
+names(PS)<-c("Blue","Green","Red","Infrared",
+             "NDVI","gNDVI","SAVI","EVI","NDWI","PCA")
+df_PS<-raster::extract(PS,Training_Points,method="simple",df=TRUE)
 df_PS$ID=NULL
-# Assign Class labels
-ID<-as.matrix(points@data[["ID"]])
-Class<-replace(ID,ID==1,"Bramble")
-Class<-replace(Class,Class==2,"Water")
-Class<-replace(Class,Class==3,"Plantation")
-Class<-replace(Class,Class==4,"Ground")
-Class<-replace(Class,Class==5,"Shrubland")
-Class<-replace(Class,Class==6,"Grassland")
-Class<-replace(Class,Class==7,"Woodland")
-Class<-replace(Class,Class==8,"Thicket")
+Class<-as.matrix(Training_Points$Class)
 # Save csv file
 df_PS<-as.data.frame(cbind(df_PS,"Class"=Class))
 df_PS<-df_PS[complete.cases(df_PS),]
-write.csv(df_PS,"Products/df_PS.csv",row.names=FALSE)
-rm(ID,PS,template_rst,Training_Points_rst,Training_Points_df,points,df_PS,Class)
+write.csv(df_PS,"Products/df_PS_VI.csv",row.names=FALSE)
+rm(Class,PS,df_PS)
 
 # Extract training data for super resolution imagery
-SR_S2<-stack("Products/Cliped_SR_S2.tif")
+SR_S2<-stack("Products/Cliped_SR_S2_VI.tif")
 names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
-                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2")
-template_rst<-raster(extent(SR_S2[[1]]),resolution=2.5,crs=projection(SR_S2[[1]]))
-Training_Points_rst<-fasterize(Training_Points,template_rst,field="ID")
-Training_Points_df<-as.data.frame(rasterToPoints(Training_Points_rst))
-colnames(Training_Points_df)<-c("x","y","ID")
-points<-SpatialPointsDataFrame(coords=Training_Points_df[,1:2],data=Training_Points_df,proj4string=Training_Points_rst@crs)
-writeOGR(points,"Products/Shapefiles/","Raster_to_Points_SR_S2",driver="ESRI Shapefile")
-df_SR_S2<-raster::extract(SR_S2,points,method="simple",df=TRUE)
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+                "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+                "MSI","NDMI","NDWI","Chl_RE","PCA")
+df_SR_S2<-raster::extract(SR_S2,Training_Points,method="simple",df=TRUE)
 df_SR_S2$ID=NULL
-# Assign Class labels
-ID<-as.matrix(points@data[["ID"]])
-Class<-replace(ID,ID==1,"Bramble")
-Class<-replace(Class,Class==2,"Water")
-Class<-replace(Class,Class==3,"Plantation")
-Class<-replace(Class,Class==4,"Ground")
-Class<-replace(Class,Class==5,"Shrubland")
-Class<-replace(Class,Class==6,"Grassland")
-Class<-replace(Class,Class==7,"Woodland")
-Class<-replace(Class,Class==8,"Thicket")
+Class<-as.matrix(Training_Points$Class)
 # Save csv file
 df_SR_S2<-as.data.frame(cbind(df_SR_S2,"Class"=Class))
 df_SR_S2<-df_SR_S2[complete.cases(df_SR_S2),]
-write.csv(df_SR_S2,"Products/df_SR_S2.csv",row.names=FALSE)
-rm(ID,SR_S2,template_rst,Training_Points_rst,Training_Points_df,Training_Points,df_SR_S2,points,Class)
+write.csv(df_SR_S2,"Products/df_SR_S2_VI.csv",row.names=FALSE)
+rm(Class,SR_S2,df_SR_S2,Training_Points)
 
-#### Classification ####
-# Load and classify Sentinel 2
-df_S2<-read.csv("Products/df_S2.csv")
+#### Classification Sentinel 2 ####
+# Classify Sentinel 2 using spectral bands only
+df_S2<-read.csv("Products/df_S2_VI.csv")
 df_S2<-df_S2[complete.cases(df_S2),]
-S2<-stack("Products/Cliped_S2.tif")
+df_S2<-select(df_S2,c(1,2,3,4,5,6,7,8,9,10,22))
+
+# Drop raster variables
+S2<-stack("Products/Cliped_S2_VI.tif")
 names(S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
-             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2")
+             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+             "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+             "MSI","NDMI","NDWI","Chl_RE","PCA")
+S2<-dropLayer(S2,c(11,12,13,14,15,16,17,18,19,20,21))
+
 # Inspect class balance
 plot(df_S2$Class,main="Class Frequencies S2")
+table(df_S2$Class)
+
 # Split dataset
-set.seed(321)
+set.seed(691)
 df_Split<-createDataPartition(df_S2$Class,p=0.7,list=FALSE)
 df_S2_train<-df_S2[df_Split,]
+table(df_S2_train$Class)
 df_S2_test<-df_S2[-df_Split,]
+table(df_S2_test$Class)
 rm(df_Split,df_S2)
 
+# Oversample Bramble
+Bramble<-oversample_smote(df_S2_train,"Bramble","Class",70)
+Other<-df_S2_train[59:1374,]
+df_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_S2_train$Class)
+rm(Bramble,Other)
+
 # Classification: Random Forest (ranger)
-set.seed(333)
+set.seed(873)
 model_ranger<-caret::train(Class~Blue+Green+Red+Infrared+RedEdge1+RedEdge2+RedEdge3+RedEdge4+SWIR1+SWIR2,
                            method="ranger",importance="impurity",
                            data=df_S2_train,tuneLength=10,metric="Kappa",
                            trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
 # Saving model
-saveRDS(model_ranger,file="Products/model_ranger_S2.rds")
+saveRDS(model_ranger,file="Products/model_ranger_S2_Spec_Bands.rds")
 # Confusion matrix
 predict_ranger<-predict(model_ranger,df_S2_test)
-confusionMatrix(data=predict_ranger,df_S2_test$Class)#,mode="prec_recall"
-# Variable importance
-plot(varImp(model_ranger),main="Variable Importance Ranger S2")
+confusionMatrix(data=predict_ranger,df_S2_test$Class)
 # Predict and save
 beginCluster(7,type='SOCK')
 ranger_map<-clusterR(S2,predict,args=list(model=model_ranger,type="raw"))
 endCluster()
-writeRaster(ranger_map,filename="Products/Map_ranger_S2.tif",format="GTiff",overwrite=TRUE)
-rm(predict_ranger,model_ranger,ranger_map)
+writeRaster(ranger_map,filename="Products/Map_ranger_S2_Spec_Bands.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_S2_test,df_S2_train,S2)
 
-# Load and classify PlanetScope
-df_PS<-read.csv("Products/df_PS.csv")
-df_PS<-df_PS[complete.cases(df_PS),]
-PS<-stack("Products/Cliped_PS.tif")
-names(PS)<-c("Blue","Green","Red","Infrared")
-# Inspect class balance
-plot(df_PS$Class,main="Class Frequencies PS")
+####
+# Classify Sentinel 2 using spectral bands with variable selection
+df_S2<-read.csv("Products/df_S2_VI.csv")
+df_S2<-df_S2[complete.cases(df_S2),]
+df_S2<-select(df_S2,c(1,2,3,4,5,6,7,8,9,10,22))
+
+# Variable selection
+Var_Select<-VSURF(df_S2[,1:10],df_S2[,11])
+Var_Select$varselect.pred
+df_S2<-select(df_S2,c(1,2,3,5,7,9,11))
+rm(Var_Select)
+
+# Drop raster variables
+S2<-stack("Products/Cliped_S2_VI.tif")
+names(S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+             "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+             "MSI","NDMI","NDWI","Chl_RE","PCA")
+S2<-dropLayer(S2,c(4,6,8,10,11,12,13,14,15,16,17,18,19,20,21))
+
 # Split dataset
-set.seed(321)
-df_Split<-createDataPartition(df_PS$Class,p=0.7,list=FALSE)
-df_PS_train<-df_PS[df_Split,]
-df_PS_test<-df_PS[-df_Split,]
-rm(df_Split,df_PS)
+set.seed(691)
+df_Split<-createDataPartition(df_S2$Class,p=0.7,list=FALSE)
+df_S2_train<-df_S2[df_Split,]
+table(df_S2_train$Class)
+df_S2_test<-df_S2[-df_Split,]
+table(df_S2_test$Class)
+rm(df_Split,df_S2)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_S2_train,"Bramble","Class",70)
+Other<-df_S2_train[59:1374,]
+df_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_S2_train$Class)
+rm(Bramble,Other)
 
 # Classification: Random Forest (ranger)
-set.seed(333)
+set.seed(873)
+model_ranger<-caret::train(Class~Blue+Green+Red+RedEdge1+RedEdge3+SWIR1,
+                           method="ranger",importance="impurity",
+                           data=df_S2_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_S2_Spec_Bands_Sel.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_S2_test)
+confusionMatrix(data=predict_ranger,df_S2_test$Class)
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(S2,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_S2_Spec_Bands_Sel.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_S2_test,df_S2_train,S2)
+
+####
+# Classify Sentinel 2 using vegetation indices
+df_S2<-read.csv("Products/df_S2_VI.csv")
+df_S2<-df_S2[complete.cases(df_S2),]
+
+# Load raster variables
+S2<-stack("Products/Cliped_S2_VI.tif")
+names(S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+             "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+             "MSI","NDMI","NDWI","Chl_RE","PCA")
+
+# Split dataset
+set.seed(691)
+df_Split<-createDataPartition(df_S2$Class,p=0.7,list=FALSE)
+df_S2_train<-df_S2[df_Split,]
+table(df_S2_train$Class)
+df_S2_test<-df_S2[-df_Split,]
+table(df_S2_test$Class)
+rm(df_Split,df_S2)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_S2_train,"Bramble","Class",70)
+Other<-df_S2_train[59:1374,]
+df_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_S2_train$Class)
+rm(Bramble,Other)
+
+# Classification: Random Forest (ranger)
+set.seed(873)
+model_ranger<-caret::train(Class~Blue+Green+Red+Infrared+RedEdge1+RedEdge2+RedEdge3+RedEdge4+SWIR1+SWIR2+NDVI+gNDVI+NBR+SAVI+EVI+REPO+MSI+NDMI+NDWI+Chl_RE+PCA,
+                           method="ranger",importance="impurity",
+                           data=df_S2_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_S2_VI.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_S2_test)
+confusionMatrix(data=predict_ranger,df_S2_test$Class)
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(S2,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_S2_VI.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_S2_test,df_S2_train,S2)
+
+####
+# Classify Sentinel 2 using vegetation indices and variable selection
+df_S2<-read.csv("Products/df_S2_VI.csv")
+df_S2<-df_S2[complete.cases(df_S2),]
+
+# Variable selection
+Var_Select<-VSURF(df_S2[,1:21],df_S2[,22])
+Var_Select$varselect.pred
+df_S2<-select(df_S2,c(1,2,3,5,9,12,15,19,22))
+rm(Var_Select)
+
+# Drop raster variables
+S2<-stack("Products/Cliped_S2_VI.tif")
+names(S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+             "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+             "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+             "MSI","NDMI","NDWI","Chl_RE","PCA")
+S2<-dropLayer(S2,c(4,6,7,8,10,11,13,14,16,17,18,20,21))
+
+# Split dataset
+set.seed(691)
+df_Split<-createDataPartition(df_S2$Class,p=0.7,list=FALSE)
+df_S2_train<-df_S2[df_Split,]
+table(df_S2_train$Class)
+df_S2_test<-df_S2[-df_Split,]
+table(df_S2_test$Class)
+rm(df_Split,df_S2)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_S2_train,"Bramble","Class",70)
+Other<-df_S2_train[59:1374,]
+df_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_S2_train$Class)
+rm(Bramble,Other)
+
+# Classification: Random Forest (ranger)
+set.seed(873)
+model_ranger<-caret::train(Class~Blue+Green+Red+RedEdge1+SWIR1+gNDVI+EVI+NDWI,
+                           method="ranger",importance="impurity",
+                           data=df_S2_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_S2_VI_Sel.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_S2_test)
+confusionMatrix(data=predict_ranger,df_S2_test$Class)
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(S2,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_S2_VI_Sel.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_S2_test,df_S2_train,S2)
+
+#### Classification PlanetScope ####
+# Classify PlanetScope using spectral bands only
+df_PS<-read.csv("Products/df_PS_VI.csv")
+df_PS<-df_PS[complete.cases(df_PS),]
+df_PS<-select(df_PS,c(1,2,3,4,11))
+
+# Drop raster variables
+PS<-stack("Products/Cliped_PS_VI.tif")
+names(PS)<-c("Blue","Green","Red","Infrared",
+             "NDVI","gNDVI","SAVI","EVI","NDWI","PCA")
+PS<-dropLayer(PS,c(5,6,7,8,9,10))
+
+# Split dataset
+set.seed(691)
+df_Split<-createDataPartition(df_PS$Class,p=0.7,list=FALSE)
+df_PS_train<-df_PS[df_Split,]
+table(df_PS_train$Class)
+df_PS_test<-df_PS[-df_Split,]
+table(df_PS_test$Class)
+rm(df_Split,df_PS)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_PS_train,"Bramble","Class",70)
+Other<-df_PS_train[59:1376,]
+df_PS_train<-as.data.frame(rbind(Bramble,Other))
+table(df_PS_train$Class)
+rm(Bramble,Other)
+
+# Classification: Random Forest (ranger)
+set.seed(873)
 model_ranger<-caret::train(Class~Blue+Green+Red+Infrared,
                            method="ranger",importance="impurity",
                            data=df_PS_train,tuneLength=10,metric="Kappa",
                            trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
 # Saving model
-saveRDS(model_ranger,file="Products/model_ranger_PS.rds")
+saveRDS(model_ranger,file="Products/model_ranger_PS_Spec_Bands.rds")
 # Confusion matrix
 predict_ranger<-predict(model_ranger,df_PS_test)
-confusionMatrix(data=predict_ranger,df_PS_test$Class)#,mode="prec_recall"
-# Variable importance
-plot(varImp(model_ranger),main="Variable Importance Ranger PS")
+confusionMatrix(data=predict_ranger,df_PS_test$Class)
 # Predict and save
 beginCluster(7,type='SOCK')
 ranger_map<-clusterR(PS,predict,args=list(model=model_ranger,type="raw"))
 endCluster()
-writeRaster(ranger_map,filename="Products/Map_ranger_PS.tif",format="GTiff",overwrite=TRUE)
-rm(predict_ranger,model_ranger,ranger_map)
+writeRaster(ranger_map,filename="Products/Map_ranger_PS_Spec_Bands.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_PS_test,df_PS_train,PS)
 
-# Load and classify Super-resolve
-df_SR_S2<-read.csv("Products/df_SR_S2_SR_S2.csv")
-df_SR_S2<-df_SR_S2[complete.cases(df_SR_S2),]
-SR_S2<-stack("Products/Cliped_SR_S2.tif")
-names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
-                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2")
-# Inspect class balance
-plot(df_SR_S2$Class,main="Class Frequencies SR S2")
+####
+# Classify PlanetScope using vegetation indices
+df_PS<-read.csv("Products/df_PS_VI.csv")
+df_PS<-df_PS[complete.cases(df_PS),]
+
+# Load rasters
+PS<-stack("Products/Cliped_PS_VI.tif")
+names(PS)<-c("Blue","Green","Red","Infrared","NDVI","gNDVI","SAVI","EVI","NDWI","PCA")
+
 # Split dataset
-set.seed(321)
+set.seed(691)
+df_Split<-createDataPartition(df_PS$Class,p=0.7,list=FALSE)
+df_PS_train<-df_PS[df_Split,]
+table(df_PS_train$Class)
+df_PS_test<-df_PS[-df_Split,]
+table(df_PS_test$Class)
+rm(df_Split,df_PS)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_PS_train,"Bramble","Class",70)
+Other<-df_PS_train[59:1376,]
+df_PS_train<-as.data.frame(rbind(Bramble,Other))
+table(df_PS_train$Class)
+rm(Bramble,Other)
+
+# Classification: Random Forest (ranger)  
+set.seed(873)
+model_ranger<-caret::train(Class~Blue+Green+Red+Infrared+NDVI+gNDVI+SAVI+EVI+NDWI+PCA,
+                           method="ranger",importance="impurity",
+                           data=df_PS_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_PS_VI.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_PS_test)
+confusionMatrix(data=predict_ranger,df_PS_test$Class)
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(PS,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_PS_VI.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_PS_test,df_PS_train,PS)
+
+#### Classification Super-resolution ####
+# Classify Super-resolve using spectral bands only
+df_SR_S2<-read.csv("Products/df_SR_S2_VI.csv")
+df_SR_S2<-df_SR_S2[complete.cases(df_SR_S2),]
+df_SR_S2<-select(df_SR_S2,c(1,2,3,4,5,6,7,8,9,10,22))
+
+# Drop raster variables
+SR_S2<-stack("Products/Cliped_SR_S2_VI.tif")
+names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+                "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+                "MSI","NDMI","NDWI","Chl_RE","PCA")
+SR_S2<-dropLayer(SR_S2,c(11,12,13,14,15,16,17,18,19,20,21))
+
+# Split dataset
+set.seed(691)
 df_SR_S2_Split<-createDataPartition(df_SR_S2$Class,p=0.7,list=FALSE)
 df_SR_S2_train<-df_SR_S2[df_SR_S2_Split,]
+table(df_SR_S2_train$Class)
 df_SR_S2_test<-df_SR_S2[-df_SR_S2_Split,]
+table(df_SR_S2_test$Class)
 rm(df_SR_S2_Split,df_SR_S2)
 
+# Oversample Bramble
+Bramble<-oversample_smote(df_SR_S2_train,"Bramble","Class",70)
+Other<-df_SR_S2_train[59:1376,]
+df_SR_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_SR_S2_train$Class)
+rm(Bramble,Other)
+
 # Classification: Random Forest (ranger)
-set.seed(333)
+set.seed(873)
 model_ranger<-caret::train(Class~Blue+Green+Red+Infrared+RedEdge1+RedEdge2+RedEdge3+RedEdge4+SWIR1+SWIR2,
                            method="ranger",importance="impurity",
                            data=df_SR_S2_train,tuneLength=10,metric="Kappa",
                            trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
 # Saving model
-saveRDS(model_ranger,file="Products/model_ranger_SR_S2.rds")
+saveRDS(model_ranger,file="Products/model_ranger_SR_S2_Spec_Bands.rds")
 # Confusion matrix
 predict_ranger<-predict(model_ranger,df_SR_S2_test)
 confusionMatrix(data=predict_ranger,df_SR_S2_test$Class)#,mode="prec_recall"
-# Variable importance
-plot(varImp(model_ranger),main="Variable Importance Ranger SR S2")
 # Predict and save
 beginCluster(7,type='SOCK')
 ranger_map<-clusterR(SR_S2,predict,args=list(model=model_ranger,type="raw"))
 endCluster()
-writeRaster(ranger_map,filename="Products/Map_ranger_SR_S2.tif",format="GTiff",overwrite=TRUE)
+writeRaster(ranger_map,filename="Products/Map_ranger_SR_S2_Spec_Bands.tif",format="GTiff",overwrite=TRUE)
 rm(predict_ranger,model_ranger,ranger_map,df_SR_S2_test,df_SR_S2_train,SR_S2)
+
+####
+# Classify Super-resolve using spectral bands and variable selection
+df_SR_S2<-read.csv("Products/df_SR_S2_VI.csv")
+df_SR_S2<-df_SR_S2[complete.cases(df_SR_S2),]
+df_SR_S2<-select(df_SR_S2,c(1,2,3,4,5,6,7,8,9,10,22))
+
+# Variable selection
+Var_Select<-VSURF(df_SR_S2[,1:10],df_SR_S2[,11])
+Var_Select$varselect.pred
+df_SR_S2<-select(df_SR_S2,c(1,2,3,4,9,10,11))
+rm(Var_Select)
+
+# Drop raster variables
+SR_S2<-stack("Products/Cliped_SR_S2_VI.tif")
+names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+                "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+                "MSI","NDMI","NDWI","Chl_RE","PCA")
+SR_S2<-dropLayer(SR_S2,c(5,6,7,8,11,12,13,14,15,16,17,18,19,20,21))
+
+# Split dataset
+set.seed(691)
+df_SR_S2_Split<-createDataPartition(df_SR_S2$Class,p=0.7,list=FALSE)
+df_SR_S2_train<-df_SR_S2[df_SR_S2_Split,]
+table(df_SR_S2_train$Class)
+df_SR_S2_test<-df_SR_S2[-df_SR_S2_Split,]
+table(df_SR_S2_test$Class)
+rm(df_SR_S2_Split,df_SR_S2)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_SR_S2_train,"Bramble","Class",70)
+Other<-df_SR_S2_train[59:1376,]
+df_SR_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_SR_S2_train$Class)
+rm(Bramble,Other)
+ 
+# Classification: Random Forest (ranger)
+set.seed(873)
+model_ranger<-caret::train(Class~Blue+Green+Red+Infrared+SWIR1+SWIR2,
+                           method="ranger",importance="impurity",
+                           data=df_SR_S2_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_SR_S2_Spec_Bands_Sel.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_SR_S2_test)
+confusionMatrix(data=predict_ranger,df_SR_S2_test$Class)#,mode="prec_recall"
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(SR_S2,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_SR_S2_Spec_Bands_Sel.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_SR_S2_test,df_SR_S2_train,SR_S2)
+
+####
+# Classify Super-resolve using vegetation indices
+df_SR_S2<-read.csv("Products/df_SR_S2_VI.csv")
+df_SR_S2<-df_SR_S2[complete.cases(df_SR_S2),]
+
+# Load raster variables
+SR_S2<-stack("Products/Cliped_SR_S2_VI.tif")
+names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+                "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+                "MSI","NDMI","NDWI","Chl_RE","PCA")
+
+# Split dataset
+set.seed(691)
+df_SR_S2_Split<-createDataPartition(df_SR_S2$Class,p=0.7,list=FALSE)
+df_SR_S2_train<-df_SR_S2[df_SR_S2_Split,]
+table(df_SR_S2_train$Class)
+df_SR_S2_test<-df_SR_S2[-df_SR_S2_Split,]
+table(df_SR_S2_test$Class)
+rm(df_SR_S2_Split,df_SR_S2)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_SR_S2_train,"Bramble","Class",70)
+Other<-df_SR_S2_train[59:1376,]
+df_SR_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_SR_S2_train$Class)
+rm(Bramble,Other)
+
+# Classification: Random Forest (ranger)
+set.seed(873)
+model_ranger<-caret::train(Class~Blue+Green+Red+Infrared+RedEdge1+RedEdge2+RedEdge3+RedEdge4+SWIR1+SWIR2+NDVI+gNDVI+NBR+SAVI+EVI+REPO+MSI+NDMI+NDWI+Chl_RE+PCA,
+                           method="ranger",importance="impurity",
+                           data=df_SR_S2_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_SR_S2_VI.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_SR_S2_test)
+confusionMatrix(data=predict_ranger,df_SR_S2_test$Class)#,mode="prec_recall"
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(SR_S2,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_SR_S2_VI.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_SR_S2_test,df_SR_S2_train,SR_S2)
+
+####
+# Classify Super-resolve using vegetation indices and variable selection
+df_SR_S2<-read.csv("Products/df_SR_S2_VI.csv")
+df_SR_S2<-df_SR_S2[complete.cases(df_SR_S2),]
+
+# Variable selection
+Var_Select<-VSURF(df_SR_S2[,1:21],df_SR_S2[,22])
+Var_Select$varselect.pred
+df_SR_S2<-select(df_SR_S2,c(2,3,9,10,14,15,19,22))
+rm(Var_Select)
+
+# Drop raster variables
+SR_S2<-stack("Products/Cliped_SR_S2_VI.tif")
+names(SR_S2)<-c("Blue","Green","Red","Infrared","RedEdge1",
+                "RedEdge2","RedEdge3","RedEdge4","SWIR1","SWIR2",
+                "NDVI","gNDVI","NBR","SAVI","EVI","REPO",
+                "MSI","NDMI","NDWI","Chl_RE","PCA")
+SR_S2<-dropLayer(SR_S2,c(1,4,5,6,7,8,11,12,13,16,17,18,20,21))
+
+# Split dataset
+set.seed(691)
+df_SR_S2_Split<-createDataPartition(df_SR_S2$Class,p=0.7,list=FALSE)
+df_SR_S2_train<-df_SR_S2[df_SR_S2_Split,]
+table(df_SR_S2_train$Class)
+df_SR_S2_test<-df_SR_S2[-df_SR_S2_Split,]
+table(df_SR_S2_test$Class)
+rm(df_SR_S2_Split,df_SR_S2)
+
+# Oversample Bramble
+Bramble<-oversample_smote(df_SR_S2_train,"Bramble","Class",70)
+Other<-df_SR_S2_train[59:1376,]
+df_SR_S2_train<-as.data.frame(rbind(Bramble,Other))
+table(df_SR_S2_train$Class)
+rm(Bramble,Other)
+
+# Classification: Random Forest (ranger)
+set.seed(873)
+model_ranger<-caret::train(Class~Green+Red+SWIR1+SWIR2+SAVI+EVI+NDWI,
+                           method="ranger",importance="impurity",
+                           data=df_SR_S2_train,tuneLength=10,metric="Kappa",
+                           trControl=trainControl(summaryFunction=multiClassSummary,classProbs=TRUE))
+# Saving model
+saveRDS(model_ranger,file="Products/model_ranger_SR_S2_VI_Sel.rds")
+# Confusion matrix
+predict_ranger<-predict(model_ranger,df_SR_S2_test)
+confusionMatrix(data=predict_ranger,df_SR_S2_test$Class)
+# Predict and save
+beginCluster(7,type='SOCK')
+ranger_map<-clusterR(SR_S2,predict,args=list(model=model_ranger,type="raw"))
+endCluster()
+writeRaster(ranger_map,filename="Products/Map_ranger_SR_S2_VI_Sel.tif",format="GTiff",overwrite=TRUE)
+rm(predict_ranger,model_ranger,ranger_map,df_SR_S2_test,df_SR_S2_train,SR_S2)
+
+#### Classification plots ####
+# Plot variable importance together
+model_ranger_SR_S2_VI_Sel<-readRDS("Products/model_ranger_SR_S2_VI_Sel.rds")
+model_ranger_SR_S2_VI<-readRDS("Products/model_ranger_SR_S2_VI.rds")
+model_ranger_SR_S2_Spec_Bands_Sel<-readRDS("Products/model_ranger_SR_S2_Spec_Bands_Sel.rds")
+model_ranger_SR_S2_Spec_Bands<-readRDS("Products/model_ranger_SR_S2_Spec_Bands.rds")
+model_ranger_S2_VI_Sel<-readRDS("Products/model_ranger_S2_VI_Sel.rds")
+model_ranger_S2_VI<-readRDS("Products/model_ranger_S2_VI.rds")
+model_ranger_S2_Spec_Bands_Sel<-readRDS("Products/model_ranger_S2_Spec_Bands_Sel.rds")
+model_ranger_S2_Spec_Bands<-readRDS("Products/model_ranger_S2_Spec_Bands.rds")
+model_ranger_PS_VI<-readRDS("Products/model_ranger_PS_VI.rds")
+model_ranger_PS_Spec_Bands<-readRDS("Products/model_ranger_PS_Spec_Bands.rds")
+a<-ggplot(varImp(model_ranger_SR_S2_VI_Sel))+ggtitle("Variable Importance Ranger SR VI selected")+labs(tag="a)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+b<-ggplot(varImp(model_ranger_SR_S2_VI))+ggtitle("Variable Importance Ranger SR VI")+labs(tag="b)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+c<-ggplot(varImp(model_ranger_SR_S2_Spec_Bands_Sel))+ggtitle("Variable Importance Ranger SR bands selected")+labs(tag="c)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+d<-ggplot(varImp(model_ranger_SR_S2_Spec_Bands))+ggtitle("Variable Importance Ranger SR bands")+labs(tag="d)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+e<-ggplot(varImp(model_ranger_S2_VI_Sel))+ggtitle("Variable Importance Ranger S2 VI selected")+labs(tag="e)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+f<-ggplot(varImp(model_ranger_S2_VI))+ggtitle("Variable Importance Ranger S2 VI")+labs(tag="f)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+g<-ggplot(varImp(model_ranger_S2_Spec_Bands_Sel))+ggtitle("Variable Importance Ranger S2 bands selected")+labs(tag="g)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+h<-ggplot(varImp(model_ranger_S2_Spec_Bands))+ggtitle("Variable Importance Ranger S2 bands")+labs(tag="h)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+i<-ggplot(varImp(model_ranger_PS_VI))+ggtitle("Variable Importance Ranger PS VI")+labs(tag="i)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+j<-ggplot(varImp(model_ranger_PS_Spec_Bands))+ggtitle("Variable Importance Ranger PS bands")+labs(tag="j)")+
+  theme(axis.title=element_text(size=14),axis.text=element_text(size=13,colour="black"),axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),panel.grid=element_blank(),panel.background=element_blank(),plot.tag=element_text(hjust=0.5))
+ggarrange(a,b,c,d,e,f,g,h,i,j,ncol=4,nrow=3)
+rm(a,b,c,d,e,f,g,h,i,j,model_ranger_SR_S2_VI_Sel,model_ranger_SR_S2_VI,model_ranger_SR_S2_Spec_Bands_Sel,model_ranger_SR_S2_Spec_Bands,
+   model_ranger_S2_VI_Sel,model_ranger_S2_VI,model_ranger_S2_Spec_Bands_Sel,model_ranger_S2_Spec_Bands,model_ranger_PS_VI,model_ranger_PS_Spec_Bands)
+
+# Plot spectral profiles
+df<-read.csv("Products/df_SR_S2_VI.csv")
+df<-df[complete.cases(df),]
+ms<-aggregate(df,list(df$Class),mean)
+rownames(ms)<-ms[,1]
+ms<-ms[,-1]
+ms<-ms[,1:10]
+ms<-as.matrix(ms)
+mycolor<-c('darkred','yellow','burlywood','cyan','blue','green','gray','magenta')
+plot(0,ylim=c(0,4000), xlim=c(1,10),type='n',xlab="Bands",ylab="Reflectance",xaxt="n")
+for (i in 1:nrow(ms)){
+  lines(ms[i,],type="l",lwd=3,lty=1,col=mycolor[i])
+}
+title(main="Spectral profiles from Super-resolved imagery",font.main=2)
+legend("topleft",rownames(ms),cex=0.8,col=mycolor,lty=1,lwd=3,bty="n")
+name<-c("B02","B03","B04","B08","B05","B06","B07","B8A","B11","B12")
+axis(1,at=1:10,labels=name)
+rm(df,ms,i,mycolor,name)
 
 #### Create bramble response variable ####
 # Extract bramble class
-Bramble_Class<-raster("Products/Map_ranger_SR_S2.tif")
+Bramble_Class<-raster("Products/Map_ranger_SR_S2_VI.tif")
 Bramble_Class[Bramble_Class>1]<-NA
 writeRaster(Bramble_Class,filename="Products/Bramble_Class.tif",format="GTiff",overwrite=TRUE)
 # Convert to vector
@@ -335,12 +824,14 @@ Vector_Bramble_Class$Obj_ID<-1:nrow(Vector_Bramble_Class)
 Vector_Bramble_Class$Area_sqm<-area(Vector_Bramble_Class)
 Vector_Bramble_Class<-st_as_sf(Vector_Bramble_Class)
 Vector_Bramble_Class_Filter<-Vector_Bramble_Class %>%
-  filter(Area_sqm>=31.25) #2.5 pixel size = 6.25m squared: 
+  filter(Area_sqm>=31.25)
 st_write(Vector_Bramble_Class_Filter,"Products/Shapefiles/Vector_Bramble_Class_Dis_Filter.shp")
 
 # Generate random points
 #https://www.jla-data.net/eng/creating-and-pruning-random-points-and-polygons/
-Vector_Bramble_Class<-st_as_sf(Vector_Bramble_Class)
+#Vector_Bramble_Class<-st_read("Products/Shapefiles/Vector_Bramble_Class_Dis_Filter.shp")
+Vector_Bramble_Class<-st_as_sf(Vector_Bramble_Class_Filter)
+set.seed(8534)
 Random_Points_Bramble_Class<-st_sample(Vector_Bramble_Class,size=10000,type="random") %>%
   st_sf() %>%
   st_transform(32736)
@@ -360,7 +851,8 @@ repeat({
   }
 })
 st_write(Random_Points_Bramble_Class,"Products/Shapefiles/Random_Points_Bramble_Class.shp")
-rm(Random_Points_Bramble_Class,Vector_Bramble_Class,i,buffer_size,buffer,offending)
+rm(Random_Points_Bramble_Class,Vector_Bramble_Class,i,buffer_size,buffer,offending,Vector_Bramble_Class_Filter)
+
 # Clip bramble into two sections
 Bramble_Class<-raster("Products/Bramble_Class.tif")
 Plantation_Boundaries<-st_read("Shapefiles/Plantation_Boundaries.shp")
@@ -370,6 +862,7 @@ writeRaster(Production_Areas,filename="Products/Production_Areas_Bramble.tif",fo
 Conservation_Areas<-raster::mask(Bramble_Class,Plantation_Boundaries,inverse=TRUE)
 writeRaster(Conservation_Areas,filename="Products/Conservation_Areas_Bramble.tif",format="GTiff",overwrite=TRUE)
 rm(Production_Areas,Conservation_Areas)
+
 # Clip points
 Random_Points_Bramble_Class<-st_read("Products/Shapefiles/Random_Points_Bramble_Class.shp")
 Random_Points_Production_Areas<-Random_Points_Bramble_Class[Plantation_Boundaries,]
@@ -450,9 +943,9 @@ writeRaster(Rivers,filename="Products/Distance_Rivers.tif",format="GTiff",overwr
 rm(Rivers,Rivers_Estate1,Rivers_Estate2,Rivers_Estate3,Rivers_Estate4)
 
 # Extract distance to woodland areas
-Woodland<-raster("Products/Map_ranger_SR_S2.tif")
+Woodland<-raster("Products/Map_ranger_SR_S2_VI.tif")
 Woodland<-raster::resample(Woodland,template_rst,method="ngb")
-Woodland[Woodland<7]<-NA
+Woodland[Woodland<8]<-NA
 Woodland_Estate1<-crop(Woodland,Estate1)
 Woodland_Estate1<-mask(Woodland_Estate1,Estate1)
 Woodland_Estate1<-raster::distance(Woodland_Estate1,datatype="INT2U")
@@ -490,11 +983,11 @@ rm(template_rst,Plantation_Dist,Plantation_Boundaries,Plantation_Dist_Estate1,
    Plantation_Dist_Estate2,Plantation_Dist_Estate3,Plantation_Dist_Estate4)
 
 # Calculate distance to plantation harvesting
-NBR_2020<-raster("Raster_Data/NBR/Min_NBR_Landsat_2020.tif")
-NBR_2019<-raster("Raster_Data/NBR/Min_NBR_Landsat_2019.tif")
-NBR_2018<-raster("Raster_Data/NBR/Min_NBR_Landsat_2018.tif")
-NBR_2017<-raster("Raster_Data/NBR/Min_NBR_Landsat_2017.tif")
-NBR_2016<-raster("Raster_Data/NBR/Min_NBR_Landsat_2016.tif")
+NBR_2020<-raster("Raster_Data/NBR/Max_NBR_Landsat_2020.tif")
+NBR_2019<-raster("Raster_Data/NBR/Max_NBR_Landsat_2019.tif")
+NBR_2018<-raster("Raster_Data/NBR/Max_NBR_Landsat_2018.tif")
+NBR_2017<-raster("Raster_Data/NBR/Max_NBR_Landsat_2017.tif")
+NBR_2016<-raster("Raster_Data/NBR/Max_NBR_Landsat_2016.tif")
 Plantation_Boundaries<-st_read("Shapefiles/Plantation_Boundaries.shp")
 NBR_2020<-mask(NBR_2020,Plantation_Boundaries)
 NBR_2019<-mask(NBR_2019,Plantation_Boundaries)
@@ -557,21 +1050,22 @@ Con_NBR_2018<-raster::extract(NBR_2018_Dist,Con_Points,method="simple")
 Con_NBR_2017<-raster::extract(NBR_2017_Dist,Con_Points,method="simple")
 Con_NBR_2016<-raster::extract(NBR_2016_Dist,Con_Points,method="simple")
 # Load fire histories from google earth engine
-Fire_2020<-read.csv("Excel_Sheets/NBR_2020.csv")
+Fire_2020<-read.csv("Excel_Sheets/New_NBR_2020.csv")
 Fire_2020<-Fire_2020[order(Fire_2020$FID,decreasing=FALSE),]
 Fire_2020<-Fire_2020$mean
-Fire_2019<-read.csv("Excel_Sheets/NBR_2019.csv")
+Fire_2019<-read.csv("Excel_Sheets/New_NBR_2019.csv")
 Fire_2019<-Fire_2019[order(Fire_2019$FID,decreasing=FALSE),]
 Fire_2019<-Fire_2019$mean
-Fire_2018<-read.csv("Excel_Sheets/NBR_2018.csv")
+Fire_2018<-read.csv("Excel_Sheets/New_NBR_2018.csv")
 Fire_2018<-Fire_2018[order(Fire_2018$FID,decreasing=FALSE),]
 Fire_2018<-Fire_2018$mean
-Fire_2017<-read.csv("Excel_Sheets/NBR_2017.csv")
+Fire_2017<-read.csv("Excel_Sheets/New_NBR_2017.csv")
 Fire_2017<-Fire_2017[order(Fire_2017$FID,decreasing=FALSE),]
 Fire_2017<-Fire_2017$mean
-Fire_2016<-read.csv("Excel_Sheets/NBR_2016.csv")
+Fire_2016<-read.csv("Excel_Sheets/New_NBR_2016.csv")
 Fire_2016<-Fire_2016[order(Fire_2016$FID,decreasing=FALSE),]
 Fire_2016<-Fire_2016$mean
+
 # Construct conservation dataframe
 Bram_Con_df<-as.data.frame(cbind(Bram_Con_df,"Con_Roads"=Con_Roads,"Con_Rivers"=Con_Rivers,"Con_Woodland"=Con_Woodland,
                                  "Con_Plantation"=Con_Plantation,"Con_Harvest_2020"=Con_NBR_2020,"Con_Harvest_2019"=Con_NBR_2019,
@@ -606,35 +1100,6 @@ df_Bram_Con$Bram_Abu<-round(df_Bram_Con$Bram_Abu)
 df_Bram_Pro<-read.csv("Products/df_Bram_Pro.csv")
 df_Bram_Pro<-df_Bram_Pro[,3:13]
 df_Bram_Pro$Bram_Abu<-round(df_Bram_Pro$Bram_Abu)
-
-# Outliers Conservation dataframe
-df_Bram_Con<-df_Bram_Con[-c(31,55,256,266,270),]
-dotchart(df_Bram_Con$Bram_Abu,ylab="Bramble Abundance")
-dotchart(df_Bram_Con$Con_Roads,ylab="Distance to roads")
-dotchart(df_Bram_Con$Con_Rivers,ylab="Distance to rivers")
-dotchart(df_Bram_Con$Con_Woodland,ylab="Distance to Woodlands")
-dotchart(df_Bram_Con$Con_Plantation,ylab="Distance to Plantation boundary")
-dotchart(df_Bram_Con$Con_Harvest_2020,ylab="Distance to 2020 harvesting")
-dotchart(df_Bram_Con$Con_Harvest_2019,ylab="Distance to 2019 harvesting")
-dotchart(df_Bram_Con$Con_Harvest_2018,ylab="Distance to 2018 harvesting")
-dotchart(df_Bram_Con$Con_Harvest_2017,ylab="Distance to 2017 harvesting")
-dotchart(df_Bram_Con$Con_Harvest_2016,ylab="Distance to 2016 harvesting")
-dotchart(df_Bram_Con$Con_Fire_2020,ylab="Fire 2020")
-dotchart(df_Bram_Con$Con_Fire_2019,ylab="Fire 2019")
-dotchart(df_Bram_Con$Con_Fire_2018,ylab="Fire 2018")
-dotchart(df_Bram_Con$Con_Fire_2017,ylab="Fire 2017")
-dotchart(df_Bram_Con$Con_Fire_2016,ylab="Fire 2016")
-df_Bram_Pro<-df_Bram_Pro[-c(95,134,217),]
-dotchart(df_Bram_Pro$Bram_Abu,ylab="Bramble Abundance")
-dotchart(df_Bram_Pro$Pro_Roads,ylab="Distance to roads")
-dotchart(df_Bram_Pro$Pro_Rivers,ylab="Distance to rivers")
-dotchart(df_Bram_Pro$Pro_Woodland,ylab="Distance to Woodlands")
-dotchart(df_Bram_Pro$Pro_Plantation,ylab="Distance to Plantation boundary")
-dotchart(df_Bram_Pro$Pro_Harvest_2020,ylab="Distance to 2020 harvesting")
-dotchart(df_Bram_Pro$Pro_Harvest_2019,ylab="Distance to 2019 harvesting")
-dotchart(df_Bram_Pro$Pro_Harvest_2018,ylab="Distance to 2018 harvesting")
-dotchart(df_Bram_Pro$Pro_Harvest_2017,ylab="Distance to 2017 harvesting")
-dotchart(df_Bram_Pro$Pro_Harvest_2016,ylab="Distance to 2016 harvesting")
 
 # Normality
 hist(df_Bram_Con$Bram_Abu)
@@ -692,8 +1157,6 @@ Con_Points_GPS<-st_read("Products/Shapefiles/Random_Points_Conservation_Areas.sh
 Pro_Points_GPS<-st_read("Products/Shapefiles/Random_Points_Production_Areas.shp")
 Con_Points_GPS<-as.data.frame(st_coordinates(Con_Points_GPS))
 Pro_Points_GPS<-as.data.frame(st_coordinates(Pro_Points_GPS))
-Con_Points_GPS<-Con_Points_GPS[-c(31,55,256,266,270),]
-Pro_Points_GPS<-Pro_Points_GPS[-c(95,134,217),]
 Data.dist.inv_Con<-1/(as.matrix(dist(cbind(Con_Points_GPS$X,Con_Points_GPS$Y))))
 Data.dist.inv_Pro<-1/(as.matrix(dist(cbind(Pro_Points_GPS$X,Pro_Points_GPS$Y))))
 Data.dist.inv_Con[is.infinite(Data.dist.inv_Con)]<-0
@@ -710,8 +1173,6 @@ Pro_Points_GPS<-readOGR("Products/Shapefiles/Random_Points_Production_Areas.shp"
 Plantation<-readOGR("Shapefiles/Plantations_Clipped.shp")
 Plantation_Con<-over(Con_Points_GPS,Plantation)
 Plantation_Pro<-over(Pro_Points_GPS,Plantation)
-Plantation_Con<-Plantation_Con[-c(31,55,256,266,270),]
-Plantation_Pro<-Plantation_Pro[-c(95,134,217),]
 Plantation_Con$WPU_NAME=NULL
 Plantation_Pro$WPU_NAME=NULL
 rm(Con_Points_GPS,Pro_Points_GPS,Plantation)
@@ -738,8 +1199,6 @@ Con_Points_GPS<-st_read("Products/Shapefiles/Random_Points_Conservation_Areas.sh
 Pro_Points_GPS<-st_read("Products/Shapefiles/Random_Points_Production_Areas.shp")
 Con_Points_GPS<-as.data.frame(st_coordinates(Con_Points_GPS))
 Pro_Points_GPS<-as.data.frame(st_coordinates(Pro_Points_GPS))
-Con_Points_GPS<-Con_Points_GPS[-c(31,55,256,266,270),]
-Pro_Points_GPS<-Pro_Points_GPS[-c(95,134,217),]
 df_Bram_Con<-as.data.frame(cbind(df_Bram_Con,Con_Points_GPS))
 df_Bram_Pro<-as.data.frame(cbind(df_Bram_Pro,Pro_Points_GPS))
 df_Bram_Con_scale<-as.data.frame(cbind(df_Bram_Con_scale,Con_Points_GPS))
@@ -750,9 +1209,13 @@ df_Bram_Pro<-df_Bram_Pro[complete.cases(df_Bram_Pro),]
 df_Bram_Pro_scale<-df_Bram_Pro_scale[complete.cases(df_Bram_Pro_scale),]
 rm(Con_Points_GPS,Pro_Points_GPS)
 
+# Outliers
+df_Bram_Con<-df_Bram_Con[-c(32,279),]
+df_Bram_Con_scale<-df_Bram_Con_scale[-c(32,279),]
+
 # Model building: Conservation areas
 # 2020
-Model_Con_2020_nb<-glmmTMB(Bram_Abu~Con_Rivers+Con_Woodland+Con_Harvest_2020+Con_Fire_2020+
+Model_Con_2020_nb<-glmmTMB(Bram_Abu_Sq~Con_Rivers+Con_Woodland+Con_Harvest_2020+Con_Fire_2020+
                              Con_Rivers:Con_Fire_2020+(1|PLANTATI_1),
                            data=df_Bram_Con_scale,family="nbinom2")
 check_collinearity(Model_Con_2020_nb)
@@ -760,50 +1223,50 @@ check_collinearity(Model_Con_2020_nb)
 Low Correlation
 
                      Term  VIF Increased SE Tolerance
-               Con_Rivers 1.20         1.09      0.84
-             Con_Woodland 1.32         1.15      0.76
-         Con_Harvest_2020 1.17         1.08      0.86
-            Con_Fire_2020 1.37         1.17      0.73
- Con_Rivers:Con_Fire_2020 1.16         1.08      0.86
+               Con_Rivers 1.26         1.12      0.79
+             Con_Woodland 1.14         1.07      0.88
+         Con_Harvest_2020 1.07         1.03      0.94
+            Con_Fire_2020 1.24         1.12      0.80
+ Con_Rivers:Con_Fire_2020 1.22         1.11      0.82
 '''
 options(na.action="na.fail")
 Model_Con_2020_nb_Dredge<-dredge(Model_Con_2020_nb,evaluate=TRUE,rank=AICc)
-options(na.action="na.omit")Model_Con_2020_nb_Ave
+options(na.action="na.omit")
 Model_Con_2020_nb_Subset<-subset(Model_Con_2020_nb_Dredge,delta<2)
 Model_Con_2020_nb_Ave<-model.avg(Model_Con_2020_nb_Subset)
-importance(Model_Con_2020_nb_Ave)
+sw(Model_Con_2020_nb_Ave)
 '''
-                     cond(Con_Fire_2020) cond(Con_Rivers) cond(Con_Fire_2020:Con_Rivers) cond(Con_Harvest_2020)
-Sum of weights:      1.00                0.83             0.24                           0.17                  
-N containing models:    4                   3                1                              1
+                     cond(Con_Fire_2020) cond(Con_Rivers) cond(Con_Harvest_2020) cond(Con_Fire_2020:Con_Rivers)
+Sum of weights:      1.00                1.00             0.32                   0.20                          
+N containing models:    3                   3                1                      1
 '''
 confint(Model_Con_2020_nb_Ave)
 '''
                                      2.5 %       97.5 %
-cond((Int))                     6.91040010  7.176241899
-cond(Con_Fire_2020)            -0.29163077 -0.096622927 *
-cond(Con_Rivers)               -0.19911693 -0.005521042 *
-cond(Con_Fire_2020:Con_Rivers) -0.14297391  0.046366343
-cond(Con_Harvest_2020)         -0.06116333  0.112394848
+cond((Int))                     3.45178990  3.581718441
+cond(Con_Fire_2020)            -0.15364749 -0.054664679 *
+cond(Con_Rivers)               -0.11050916 -0.006687638 *
+cond(Con_Harvest_2020)         -0.01923586  0.070295133
+cond(Con_Fire_2020:Con_Rivers) -0.06624015  0.038287990
 '''
 summary(Model_Con_2020_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
                                 Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                     7.038880   0.066318    0.066626 105.647  < 2e-16 ***
-cond(Con_Fire_2020)            -0.199850   0.048914    0.049142   4.067 4.77e-05 ***
-cond(Con_Rivers)               -0.108396   0.049156    0.049377   2.195   0.0281 *  
-cond(Con_Fire_2020:Con_Rivers) -0.015702   0.035502    0.035594   0.441   0.6591    
-cond(Con_Harvest_2020)          0.006016   0.023399    0.023481   0.256   0.7978    
+cond((Int))                     3.516754   0.033004    0.033146 106.100  < 2e-16 ***
+cond(Con_Fire_2020)            -0.104156   0.025145    0.025251   4.125 3.71e-05 ***
+cond(Con_Rivers)               -0.058598   0.026373    0.026486   2.212   0.0269 *  
+cond(Con_Harvest_2020)          0.008199   0.017556    0.017597   0.466   0.6412    
+cond(Con_Fire_2020:Con_Rivers) -0.002734   0.012987    0.013032   0.210   0.8338    
  
 (conditional average) 
                                Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                     7.03888    0.06632     0.06663 105.647  < 2e-16 ***
-cond(Con_Fire_2020)            -0.19985    0.04891     0.04914   4.067 4.77e-05 ***
-cond(Con_Rivers)               -0.10840    0.04916     0.04938   2.195   0.0281 *  
-cond(Con_Fire_2020:Con_Rivers) -0.05171    0.04784     0.04807   1.076   0.2820    
-cond(Con_Harvest_2020)          0.02855    0.04422     0.04442   0.643   0.5204
+cond((Int))                     3.51675    0.03300     0.03315 106.100  < 2e-16 ***
+cond(Con_Fire_2020)            -0.10416    0.02514     0.02525   4.125 3.71e-05 ***
+cond(Con_Rivers)               -0.05860    0.02637     0.02649   2.212   0.0269 *  
+cond(Con_Harvest_2020)          0.02553    0.02274     0.02284   1.118   0.2637    
+cond(Con_Fire_2020:Con_Rivers) -0.01398    0.02655     0.02667   0.524   0.6002
 '''
 # Model assumption
 plot(simulateResiduals(Model_Con_2020_nb))
@@ -819,7 +1282,7 @@ rm(Model_Con_2020_nb,Model_Con_2020_nb_Dredge,Model_Con_2020_nb_Subset,
    Model_Con_2020_nb_Ave,res_scaled,Plantation,Loc)
 
 #2019
-Model_Con_2019_nb<-glmmTMB(Bram_Abu~Con_Rivers+Con_Woodland+Con_Harvest_2019+Con_Fire_2019+
+Model_Con_2019_nb<-glmmTMB(Bram_Abu_Sq~Con_Rivers+Con_Woodland+Con_Harvest_2019+Con_Fire_2019+
                              Con_Rivers:Con_Fire_2019+(1|PLANTATI_1),
                            data=df_Bram_Con_scale,family="nbinom2")
 check_collinearity(Model_Con_2019_nb)
@@ -827,47 +1290,50 @@ check_collinearity(Model_Con_2019_nb)
 Low Correlation
 
                      Term  VIF Increased SE Tolerance
-               Con_Rivers 1.19         1.09      0.84
-             Con_Woodland 1.41         1.19      0.71
-         Con_Harvest_2019 1.20         1.09      0.84
-            Con_Fire_2019 1.35         1.16      0.74
- Con_Rivers:Con_Fire_2019 1.10         1.05      0.91
+               Con_Rivers 1.03         1.01      0.97
+             Con_Woodland 1.16         1.08      0.86
+         Con_Harvest_2019 1.08         1.04      0.92
+            Con_Fire_2019 1.21         1.10      0.83
+ Con_Rivers:Con_Fire_2019 1.03         1.02      0.97
 '''
 options(na.action="na.fail")
 Model_Con_2019_nb_Dredge<-dredge(Model_Con_2019_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Con_2019_nb_Subset<-subset(Model_Con_2019_nb_Dredge,delta<2)
 Model_Con_2019_nb_Ave<-model.avg(Model_Con_2019_nb_Subset)
-importance(Model_Con_2019_nb_Ave)
+sw(Model_Con_2019_nb_Ave)
 '''
-                     cond(Con_Fire_2019) cond(Con_Rivers) cond(Con_Fire_2019:Con_Rivers)
-Sum of weights:      1.00                0.67             0.19                          
-N containing models:    3                   2                1   
+                     cond(Con_Fire_2019) cond(Con_Harvest_2019) cond(Con_Rivers) cond(Con_Fire_2019:Con_Rivers)
+Sum of weights:      1.00                1.00                   0.81             0.28                          
+N containing models:    3                   3                      2                1  
 '''
 confint(Model_Con_2019_nb_Ave)
 '''
-                                    2.5 %      97.5 %
-cond((Int))                     6.9242216  7.17674058
-cond(Con_Fire_2019)            -0.2409542 -0.04639960 *
-cond(Con_Rivers)               -0.1735418  0.01376803
-cond(Con_Fire_2019:Con_Rivers) -0.0627881  0.10472244
+                                     2.5 %       97.5 %
+cond((Int))                     3.46608883  3.568112422
+cond(Con_Fire_2019)            -0.16321642 -0.067472062 *
+cond(Con_Harvest_2019)         -0.09986252 -0.007673383 *
+cond(Con_Rivers)               -0.09911270 -0.001196847 *
+cond(Con_Fire_2019:Con_Rivers) -0.02749491  0.075936662
 '''
 summary(Model_Con_2019_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
                                 Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                     7.050481   0.064120    0.064419 109.447  < 2e-16 ***
-cond(Con_Fire_2019)            -0.143677   0.049407    0.049632   2.895  0.00379 ** 
-cond(Con_Rivers)               -0.053455   0.054098    0.054229   0.986  0.32427    
-cond(Con_Fire_2019:Con_Rivers)  0.003983   0.020280    0.020360   0.196  0.84491    
+cond((Int))                     3.517101   0.025916    0.026027 135.133  < 2e-16 ***
+cond(Con_Fire_2019)            -0.115344   0.024322    0.024425   4.722  2.3e-06 ***
+cond(Con_Harvest_2019)         -0.053768   0.023418    0.023518   2.286   0.0222 *  
+cond(Con_Rivers)               -0.040398   0.029874    0.029945   1.349   0.1773    
+cond(Con_Fire_2019:Con_Rivers)  0.006794   0.017664    0.017711   0.384   0.7013    
  
 (conditional average) 
                                Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                     7.05048    0.06412     0.06442 109.447  < 2e-16 ***
-cond(Con_Fire_2019)            -0.14368    0.04941     0.04963   2.895  0.00379 ** 
-cond(Con_Rivers)               -0.07989    0.04756     0.04778   1.672  0.09456 .  
-cond(Con_Fire_2019:Con_Rivers)  0.02097    0.04253     0.04273   0.491  0.62367
+cond((Int))                     3.51710    0.02592     0.02603 135.133  < 2e-16 ***
+cond(Con_Fire_2019)            -0.11534    0.02432     0.02443   4.722  2.3e-06 ***
+cond(Con_Harvest_2019)         -0.05377    0.02342     0.02352   2.286   0.0222 *  
+cond(Con_Rivers)               -0.05015    0.02487     0.02498   2.008   0.0447 *  
+cond(Con_Fire_2019:Con_Rivers)  0.02422    0.02627     0.02639   0.918   0.3586
 '''
 # Model assumption
 plot(simulateResiduals(Model_Con_2019_nb))
@@ -883,7 +1349,7 @@ rm(Model_Con_2019_nb,Model_Con_2019_nb_Dredge,Model_Con_2019_nb_Subset,
    Model_Con_2019_nb_Ave,res_scaled,Plantation,Loc)
 
 #2018
-Model_Con_2018_nb<-glmmTMB(Bram_Abu~Con_Rivers+Con_Woodland+Con_Harvest_2018+Con_Fire_2018+
+Model_Con_2018_nb<-glmmTMB(Bram_Abu_Sq~Con_Rivers+Con_Woodland+Con_Harvest_2018+Con_Fire_2018+
                              Con_Rivers:Con_Fire_2018+(1|PLANTATI_1),
                            data=df_Bram_Con_scale,family="nbinom2")
 check_collinearity(Model_Con_2018_nb)
@@ -891,50 +1357,50 @@ check_collinearity(Model_Con_2018_nb)
 Low Correlation
 
                      Term  VIF Increased SE Tolerance
-               Con_Rivers 1.27         1.13      0.79
-             Con_Woodland 1.30         1.14      0.77
-         Con_Harvest_2018 1.26         1.12      0.80
-            Con_Fire_2018 1.29         1.14      0.77
- Con_Rivers:Con_Fire_2018 1.09         1.04      0.92
+               Con_Rivers 1.13         1.06      0.88
+             Con_Woodland 1.14         1.07      0.88
+         Con_Harvest_2018 1.10         1.05      0.91
+            Con_Fire_2018 1.15         1.07      0.87
+ Con_Rivers:Con_Fire_2018 1.10         1.05      0.91
 '''
 options(na.action="na.fail")
 Model_Con_2018_nb_Dredge<-dredge(Model_Con_2018_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Con_2018_nb_Subset<-subset(Model_Con_2018_nb_Dredge,delta<2)
 Model_Con_2018_nb_Ave<-model.avg(Model_Con_2018_nb_Subset)
-importance(Model_Con_2018_nb_Ave)
+sw(Model_Con_2018_nb_Ave)
 '''
-                     cond(Con_Fire_2018) cond(Con_Rivers) cond(Con_Harvest_2018) cond(Con_Woodland)
-Sum of weights:      1.00                1.00             0.67                   0.23              
-N containing models:    3                   3                2                      1    
+                     cond(Con_Fire_2018) cond(Con_Rivers) cond(Con_Harvest_2018) cond(Con_Fire_2018:Con_Rivers)
+Sum of weights:      1.00                1.00             0.30                   0.21                          
+N containing models:    3                   3                1                      1  
 '''
 confint(Model_Con_2018_nb_Ave)
 '''
-                             2.5 %      97.5 %
-cond((Int))             6.91934692  7.14854670
-cond(Con_Fire_2018)    -0.37559854 -0.17799548 *
-cond(Con_Harvest_2018) -0.01417652  0.16717924
-cond(Con_Rivers)       -0.22466945 -0.03248726 *
-cond(Con_Woodland)     -0.15138493  0.05596822
+                                     2.5 %        97.5 %
+cond((Int))                     3.45414257  3.5823208331
+cond(Con_Fire_2018)            -0.17321303 -0.0770990946 *
+cond(Con_Rivers)               -0.10096458 -0.0009751924 *
+cond(Con_Harvest_2018)         -0.07053335  0.0207921728
+cond(Con_Fire_2018:Con_Rivers) -0.07181300  0.0373116865
 '''
 summary(Model_Con_2018_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
-                       Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             7.03395    0.05820     0.05847 120.299  < 2e-16 ***
-cond(Con_Fire_2018)    -0.27680    0.05019     0.05041   5.491  < 2e-16 ***
-cond(Con_Harvest_2018)  0.05119    0.05210     0.05223   0.980  0.32700    
-cond(Con_Rivers)       -0.12858    0.04881     0.04903   2.623  0.00873 ** 
-cond(Con_Woodland)     -0.01091    0.03218     0.03227   0.338  0.73529    
+                                Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                     3.518232   0.032560    0.032699 107.594   <2e-16 ***
+cond(Con_Fire_2018)            -0.125156   0.024415    0.024519   5.104    3e-07 ***
+cond(Con_Rivers)               -0.050970   0.025401    0.025508   1.998   0.0457 *  
+cond(Con_Harvest_2018)         -0.007553   0.017153    0.017194   0.439   0.6605    
+cond(Con_Fire_2018:Con_Rivers) -0.003598   0.014471    0.014518   0.248   0.8043    
  
 (conditional average) 
-                       Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             7.03395    0.05820     0.05847 120.299  < 2e-16 ***
-cond(Con_Fire_2018)    -0.27680    0.05019     0.05041   5.491  < 2e-16 ***
-cond(Con_Harvest_2018)  0.07650    0.04605     0.04627   1.654  0.09822 .  
-cond(Con_Rivers)       -0.12858    0.04881     0.04903   2.623  0.00873 ** 
-cond(Con_Woodland)     -0.04771    0.05265     0.05290   0.902  0.36711
+                               Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                     3.51823    0.03256     0.03270 107.594   <2e-16 ***
+cond(Con_Fire_2018)            -0.12516    0.02442     0.02452   5.104    3e-07 ***
+cond(Con_Rivers)               -0.05097    0.02540     0.02551   1.998   0.0457 *  
+cond(Con_Harvest_2018)         -0.02487    0.02320     0.02330   1.068   0.2857    
+cond(Con_Fire_2018:Con_Rivers) -0.01725    0.02772     0.02784   0.620   0.5355
 '''
 # Model assumption
 plot(simulateResiduals(Model_Con_2018_nb))
@@ -950,7 +1416,7 @@ rm(Model_Con_2018_nb,Model_Con_2018_nb_Dredge,Model_Con_2018_nb_Subset,
    Model_Con_2018_nb_Ave,res_scaled,Plantation,Loc)
 
 #2017
-Model_Con_2017_nb<-glmmTMB(Bram_Abu~Con_Rivers+Con_Woodland+Con_Harvest_2017+Con_Fire_2017+
+Model_Con_2017_nb<-glmmTMB(Bram_Abu_Sq~Con_Rivers+Con_Woodland+Con_Harvest_2017+Con_Fire_2017+
                              Con_Rivers:Con_Fire_2017+(1|PLANTATI_1),
                            data=df_Bram_Con_scale,family="nbinom2")
 check_collinearity(Model_Con_2017_nb)
@@ -958,56 +1424,50 @@ check_collinearity(Model_Con_2017_nb)
 Low Correlation
 
                      Term  VIF Increased SE Tolerance
-               Con_Rivers 1.25         1.12      0.80
-             Con_Woodland 1.39         1.18      0.72
-         Con_Harvest_2017 1.29         1.14      0.77
-            Con_Fire_2017 1.28         1.13      0.78
- Con_Rivers:Con_Fire_2017 1.10         1.05      0.91
+               Con_Rivers 1.07         1.04      0.93
+             Con_Woodland 1.12         1.06      0.90
+         Con_Harvest_2017 1.17         1.08      0.85
+            Con_Fire_2017 1.12         1.06      0.89
+ Con_Rivers:Con_Fire_2017 1.04         1.02      0.96
 '''
 options(na.action="na.fail")
 Model_Con_2017_nb_Dredge<-dredge(Model_Con_2017_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Con_2017_nb_Subset<-subset(Model_Con_2017_nb_Dredge,delta<2)
 Model_Con_2017_nb_Ave<-model.avg(Model_Con_2017_nb_Subset)
-importance(Model_Con_2017_nb_Ave)
+sw(Model_Con_2017_nb_Ave)
 '''
                      cond(Con_Fire_2017) cond(Con_Rivers) cond(Con_Harvest_2017) cond(Con_Fire_2017:Con_Rivers)
-Sum of weights:      1.00                0.86             0.67                   0.15                          
-N containing models:    5                   4                3                      1                          
-                     cond(Con_Woodland)
-Sum of weights:      0.14              
-N containing models:    1    
+Sum of weights:      1.00                0.76             0.17                   0.16                          
+N containing models:    4                   3                1                      1   
 '''
 confint(Model_Con_2017_nb_Ave)
 '''
-                                      2.5 %        97.5 %
-cond((Int))                     6.915156241  7.1752150697
-cond(Con_Fire_2017)            -0.252173355 -0.0572167901 *
-cond(Con_Harvest_2017)         -0.006316717  0.1764073166
-cond(Con_Rivers)               -0.202390120 -0.0006724493 *
-cond(Con_Fire_2017:Con_Rivers) -0.074088706  0.1327425613
-cond(Con_Woodland)             -0.134921000  0.0906466866
+                                     2.5 %       97.5 %
+cond((Int))                     3.45339922  3.588448613
+cond(Con_Fire_2017)            -0.20648096 -0.106408534 *
+cond(Con_Rivers)               -0.09195442  0.004174907
+cond(Con_Harvest_2017)         -0.05466921  0.036044872
+cond(Con_Fire_2017:Con_Rivers) -0.04531160  0.061692779
 '''
 summary(Model_Con_2017_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
                                 Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                     7.045186   0.066034    0.066343 106.194  < 2e-16 ***
-cond(Con_Fire_2017)            -0.154695   0.049508    0.049735   3.110  0.00187 ** 
-cond(Con_Harvest_2017)          0.057380   0.055135    0.055258   1.038  0.29908    
-cond(Con_Rivers)               -0.087138   0.059220    0.059387   1.467  0.14230    
-cond(Con_Fire_2017:Con_Rivers)  0.004517   0.023171    0.023258   0.194  0.84599    
-cond(Con_Woodland)             -0.003143   0.022921    0.023017   0.137  0.89140    
+cond((Int))                     3.520924   0.034305    0.034452 102.198   <2e-16 ***
+cond(Con_Fire_2017)            -0.156445   0.025421    0.025529   6.128   <2e-16 ***
+cond(Con_Rivers)               -0.033562   0.028330    0.028399   1.182    0.237    
+cond(Con_Harvest_2017)         -0.001555   0.010035    0.010073   0.154    0.877    
+cond(Con_Fire_2017:Con_Rivers)  0.001319   0.011316    0.011361   0.116    0.908    
  
 (conditional average) 
-                               Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                     7.04519    0.06603     0.06634 106.194  < 2e-16 ***
-cond(Con_Fire_2017)            -0.15470    0.04951     0.04973   3.110  0.00187 ** 
-cond(Con_Harvest_2017)          0.08505    0.04640     0.04661   1.824  0.06808 .  
-cond(Con_Rivers)               -0.10153    0.05123     0.05146   1.973  0.04849 *  
-cond(Con_Fire_2017:Con_Rivers)  0.02933    0.05252     0.05276   0.556  0.57834    
-cond(Con_Woodland)             -0.02214    0.05727     0.05754   0.385  0.70046
+                                Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                     3.520924   0.034305    0.034452 102.198   <2e-16 ***
+cond(Con_Fire_2017)            -0.156445   0.025421    0.025529   6.128   <2e-16 ***
+cond(Con_Rivers)               -0.043890   0.024419    0.024523   1.790   0.0735 .  
+cond(Con_Harvest_2017)         -0.009312   0.023043    0.023142   0.402   0.6874    
+cond(Con_Fire_2017:Con_Rivers)  0.008191   0.027181    0.027298   0.300   0.7641
 '''
 # Model assumption
 plot(simulateResiduals(Model_Con_2017_nb))
@@ -1023,7 +1483,7 @@ rm(Model_Con_2017_nb,Model_Con_2017_nb_Dredge,Model_Con_2017_nb_Subset,
    Model_Con_2017_nb_Ave,res_scaled,Plantation,Loc)
 
 #2016
-Model_Con_2016_nb<-glmmTMB(Bram_Abu~Con_Rivers+Con_Woodland+Con_Harvest_2016+Con_Fire_2016+
+Model_Con_2016_nb<-glmmTMB(Bram_Abu_Sq~Con_Rivers+Con_Woodland+Con_Harvest_2016+Con_Fire_2016+
                              Con_Rivers:Con_Fire_2016+(1|PLANTATI_1),
                            data=df_Bram_Con_scale,family="nbinom2")
 check_collinearity(Model_Con_2016_nb)
@@ -1031,50 +1491,47 @@ check_collinearity(Model_Con_2016_nb)
 Low Correlation
 
                      Term  VIF Increased SE Tolerance
-               Con_Rivers 1.46         1.21      0.69
-             Con_Woodland 1.36         1.16      0.74
-         Con_Harvest_2016 1.40         1.19      0.71
-            Con_Fire_2016 1.28         1.13      0.78
- Con_Rivers:Con_Fire_2016 1.26         1.12      0.80
+               Con_Rivers 1.10         1.05      0.91
+             Con_Woodland 1.11         1.05      0.90
+         Con_Harvest_2016 1.13         1.06      0.89
+            Con_Fire_2016 1.13         1.06      0.88
+ Con_Rivers:Con_Fire_2016 1.04         1.02      0.96
 '''
 options(na.action="na.fail")
 Model_Con_2016_nb_Dredge<-dredge(Model_Con_2016_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Con_2016_nb_Subset<-subset(Model_Con_2016_nb_Dredge,delta<2)
 Model_Con_2016_nb_Ave<-model.avg(Model_Con_2016_nb_Subset)
-importance(Model_Con_2016_nb_Ave)
+sw(Model_Con_2016_nb_Ave)
 '''
-                     cond(Con_Fire_2016) cond(Con_Rivers) cond(Con_Harvest_2016) cond(Con_Woodland)
-Sum of weights:      1.00                1.00             0.74                   0.22              
-N containing models:    3                   3                2                      1
+                     cond(Con_Fire_2016) cond(Con_Rivers) cond(Con_Woodland)
+Sum of weights:      1.00                0.72             0.19              
+N containing models:    3                   2                1
 '''
 confint(Model_Con_2016_nb_Ave)
 '''
-                              2.5 %      97.5 %
-cond((Int))             6.931254371  7.15755460
-cond(Con_Fire_2016)    -0.331590434 -0.13640715 *
-cond(Con_Harvest_2016) -0.005826654  0.17680511 
-cond(Con_Rivers)       -0.231396663 -0.02486902 *
-cond(Con_Woodland)     -0.143006471  0.07452583
+                          2.5 %       97.5 %
+cond((Int))          3.45233143  3.583781556
+cond(Con_Fire_2016) -0.20559829 -0.111696650 *
+cond(Con_Rivers)    -0.09113861  0.003663894
+cond(Con_Woodland)  -0.05320036  0.037810673
 '''
 summary(Model_Con_2016_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
-                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             7.044404   0.057461    0.057731 122.022  < 2e-16 ***
-cond(Con_Fire_2016)    -0.233999   0.049566    0.049793   4.699  2.6e-06 ***
-cond(Con_Harvest_2016)  0.063318   0.054743    0.054878   1.154    0.249    
-cond(Con_Rivers)       -0.128133   0.052467    0.052687   2.432    0.015 *  
-cond(Con_Woodland)     -0.007511   0.029495    0.029602   0.254    0.800    
+                     Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))          3.518056   0.033391    0.033534 104.911   <2e-16 ***
+cond(Con_Fire_2016) -0.158647   0.023853    0.023955   6.623   <2e-16 ***
+cond(Con_Rivers)    -0.031292   0.028361    0.028424   1.101    0.271    
+cond(Con_Woodland)  -0.001494   0.010631    0.010673   0.140    0.889    
  
 (conditional average) 
-                       Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             7.04440    0.05746     0.05773 122.022  < 2e-16 ***
-cond(Con_Fire_2016)    -0.23400    0.04957     0.04979   4.699  2.6e-06 ***
-cond(Con_Harvest_2016)  0.08549    0.04638     0.04659   1.835   0.0665 .  
-cond(Con_Rivers)       -0.12813    0.05247     0.05269   2.432   0.0150 *  
-cond(Con_Woodland)     -0.03424    0.05523     0.05549   0.617   0.5372 
+                     Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))          3.518056   0.033391    0.033534 104.911   <2e-16 ***
+cond(Con_Fire_2016) -0.158647   0.023853    0.023955   6.623   <2e-16 ***
+cond(Con_Rivers)    -0.043737   0.024082    0.024185   1.808   0.0705 .  
+cond(Con_Woodland)  -0.007695   0.023118    0.023218   0.331   0.7403
 '''
 # Model assumption
 plot(simulateResiduals(Model_Con_2016_nb))
@@ -1090,10 +1547,10 @@ rm(Model_Con_2016_nb,Model_Con_2016_nb_Dredge,Model_Con_2016_nb_Subset,
    Model_Con_2016_nb_Ave,res_scaled,Plantation,Loc)
 
 # Plot significant variables together
-a<-ggplot(data=df_Bram_Con,aes(x=Con_Rivers,y=Bram_Abu))+
+a<-ggplot(data=df_Bram_Con,aes(x=Con_Rivers,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in grasslands\n",x="\nDistance to rivers (m)",tag="a)")+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nDistance to rivers (m)",tag="a)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1101,10 +1558,10 @@ a<-ggplot(data=df_Bram_Con,aes(x=Con_Rivers,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-b<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2020,y=Bram_Abu))+
+b<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2020,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in grasslands\n",x="\nFire severity 2020",tag="b)")+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nFire severity 2020",tag="b)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1112,10 +1569,10 @@ b<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2020,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-c<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2019,y=Bram_Abu))+
+c<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2019,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in grasslands\n",x="\nFire severity 2019",tag="c)")+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nFire severity 2019",tag="c)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1123,10 +1580,10 @@ c<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2019,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-d<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2018,y=Bram_Abu))+
+d<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2018,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in grasslands\n",x="\nFire severity 2018",tag="d)")+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nFire severity 2018",tag="d)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1134,10 +1591,10 @@ d<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2018,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-e<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2017,y=Bram_Abu))+
+e<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2017,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in grasslands\n",x="\nFire severity 2017",tag="e)")+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nFire severity 2017",tag="e)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1145,10 +1602,10 @@ e<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2017,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-f<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2016,y=Bram_Abu))+
+f<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2016,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in grasslands\n",x="\nFire severity 2016",tag="f)")+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nFire severity 2016",tag="f)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1156,12 +1613,23 @@ f<-ggplot(data=df_Bram_Con,aes(x=Con_Fire_2016,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-ggarrange(a,b,c,d,e,f,ncol=3,nrow=2) # 14 x 8.5
-rm(a,b,c,d,e,f,df_Bram_Con,df_Bram_Con_scale)
+g<-ggplot(data=df_Bram_Con,aes(x=Con_Harvest_2019,y=Bram_Abu_Sq))+
+  geom_point(colour="black",shape=21,size=2,fill="light blue")+
+  geom_smooth(method="lm",colour="black",se=FALSE)+
+  labs(y="Bramble abundance in grasslands (squared)\n",x="\nDistance to harvested plantations 2019",tag="g)")+
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=13,colour="black"),
+        axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),
+        panel.grid=element_blank(),
+        panel.background=element_blank(),
+        plot.tag=element_text(hjust=0.5))
+ggarrange(a,b,c,d,e,f,g,ncol=3,nrow=3) # 14 x 8.5
+rm(a,b,c,d,e,f,g,df_Bram_Con,df_Bram_Con_scale)
 
 # Model building: Production areas
 # 2020
-Model_Pro_2020_nb<-glmmTMB(Bram_Abu~Pro_Rivers+Pro_Woodland+Pro_Harvest_2020+
+Model_Pro_2020_nb<-glmmTMB(Bram_Abu_Sq~Pro_Rivers+Pro_Woodland+Pro_Harvest_2020+
                              Pro_Rivers:Pro_Harvest_2020+(1|PLANTATI_1),
                            data=df_Bram_Pro_scale,family="nbinom2")
 check_collinearity(Model_Pro_2020_nb)
@@ -1169,46 +1637,46 @@ check_collinearity(Model_Pro_2020_nb)
 Low Correlation
 
                         Term  VIF Increased SE Tolerance
-                  Pro_Rivers 1.00         1.00      1.00
-                Pro_Woodland 1.12         1.06      0.90
-            Pro_Harvest_2020 1.13         1.06      0.89
- Pro_Rivers:Pro_Harvest_2020 1.01         1.01      0.99
+                  Pro_Rivers 1.03         1.02      0.97
+                Pro_Woodland 1.16         1.08      0.86
+            Pro_Harvest_2020 1.13         1.06      0.88
+ Pro_Rivers:Pro_Harvest_2020 1.03         1.01      0.97
 '''
 options(na.action="na.fail")
 Model_Pro_2020_nb_Dredge<-dredge(Model_Pro_2020_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Pro_2020_nb_Subset<-subset(Model_Pro_2020_nb_Dredge,delta<2)
 Model_Pro_2020_nb_Ave<-model.avg(Model_Pro_2020_nb_Subset)
-importance(Model_Pro_2020_nb_Ave)
+sw(Model_Pro_2020_nb_Ave)
 '''
-                     cond(Pro_Harvest_2020) cond(Pro_Woodland) cond(Pro_Rivers)
-Sum of weights:      1.00                   1.00               0.34            
-N containing models:    2                      2                  1 
+                     cond(Pro_Harvest_2020) cond(Pro_Rivers) cond(Pro_Woodland)
+Sum of weights:      1.00                   0.62             0.20              
+N containing models:    3                      2                1 
 '''
 confint(Model_Pro_2020_nb_Ave)
 '''
-                             2.5 %     97.5 %
-cond((Int))             6.39960762  6.8976532
-cond(Pro_Harvest_2020) -0.45146052 -0.2119503 *
-cond(Pro_Woodland)      0.06920352  0.3487356 *
-cond(Pro_Rivers)       -0.06318513  0.1685239
+                             2.5 %      97.5 %
+cond((Int))             3.17651364  3.36113497
+cond(Pro_Harvest_2020) -0.17670340 -0.04872737 *
+cond(Pro_Rivers)       -0.11133548  0.01282449
+cond(Pro_Woodland)     -0.04124414  0.09394682
 '''
 summary(Model_Pro_2020_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
-                       Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.64863    0.12640     0.12705  52.329  < 2e-16 ***
-cond(Pro_Harvest_2020) -0.33171    0.06078     0.06110   5.429    1e-07 ***
-cond(Pro_Woodland)      0.20897    0.07094     0.07131   2.930  0.00339 ** 
-cond(Pro_Rivers)        0.01814    0.04263     0.04277   0.424  0.67155    
+                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))             3.268824   0.046837    0.047098  69.405  < 2e-16 ***
+cond(Pro_Harvest_2020) -0.112715   0.032469    0.032648   3.452 0.000555 ***
+cond(Pro_Rivers)       -0.030554   0.034451    0.034550   0.884 0.376517    
+cond(Pro_Woodland)      0.005223   0.018534    0.018604   0.281 0.778901    
  
 (conditional average) 
                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.64863    0.12640     0.12705  52.329  < 2e-16 ***
-cond(Pro_Harvest_2020) -0.33171    0.06078     0.06110   5.429    1e-07 ***
-cond(Pro_Woodland)      0.20897    0.07094     0.07131   2.930  0.00339 ** 
-cond(Pro_Rivers)        0.05267    0.05880     0.05911   0.891  0.37291 
+cond((Int))             3.26882    0.04684     0.04710  69.405  < 2e-16 ***
+cond(Pro_Harvest_2020) -0.11272    0.03247     0.03265   3.452 0.000555 ***
+cond(Pro_Rivers)       -0.04926    0.03150     0.03167   1.555 0.119928    
+cond(Pro_Woodland)      0.02635    0.03430     0.03449   0.764 0.444825 
 '''
 # Model assumption
 plot(simulateResiduals(Model_Pro_2020_nb))
@@ -1224,7 +1692,7 @@ rm(Model_Pro_2020_nb,Model_Pro_2020_nb_Dredge,Model_Pro_2020_nb_Subset,
    Model_Pro_2020_nb_Ave,res_scaled,Plantation,Loc)
 
 #2019
-Model_Pro_2019_nb<-glmmTMB(Bram_Abu~Pro_Rivers+Pro_Woodland+Pro_Harvest_2019+
+Model_Pro_2019_nb<-glmmTMB(Bram_Abu_Sq~Pro_Rivers+Pro_Woodland+Pro_Harvest_2019+
                              Pro_Rivers:Pro_Harvest_2019+(1|PLANTATI_1),
                            data=df_Bram_Pro_scale,family="nbinom2")
 check_collinearity(Model_Pro_2019_nb)
@@ -1232,49 +1700,49 @@ check_collinearity(Model_Pro_2019_nb)
 Low Correlation
 
                         Term  VIF Increased SE Tolerance
-                  Pro_Rivers 1.02         1.01      0.98
+                  Pro_Rivers 1.04         1.02      0.96
                 Pro_Woodland 1.07         1.04      0.93
-            Pro_Harvest_2019 1.07         1.03      0.93
- Pro_Rivers:Pro_Harvest_2019 1.02         1.01      0.98
+            Pro_Harvest_2019 1.06         1.03      0.94
+ Pro_Rivers:Pro_Harvest_2019 1.03         1.01      0.97
 '''
 options(na.action="na.fail")
 Model_Pro_2019_nb_Dredge<-dredge(Model_Pro_2019_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Pro_2019_nb_Subset<-subset(Model_Pro_2019_nb_Dredge,delta<2)
 Model_Pro_2019_nb_Ave<-model.avg(Model_Pro_2019_nb_Subset)
-importance(Model_Pro_2019_nb_Ave)
+sw(Model_Pro_2019_nb_Ave)
 '''
-                     cond(Pro_Harvest_2019) cond(Pro_Woodland) cond(Pro_Rivers) cond(Pro_Harvest_2019:Pro_Rivers)
-Sum of weights:      1.00                   1.00               0.47             0.26                             
-N containing models:    3                      3                  2                1   
+                     cond(Pro_Harvest_2019) cond(Pro_Rivers) cond(Pro_Woodland) cond(Pro_Harvest_2019:Pro_Rivers)
+Sum of weights:      1.00                   0.67             0.15               0.14                             
+N containing models:    4                      3                1                  1 
 '''
 confint(Model_Pro_2019_nb_Ave)
 '''
                                         2.5 %      97.5 %
-cond((Int))                        6.54207569  6.86274279
-cond(Pro_Harvest_2019)            -0.48650042 -0.29347308 *
-cond(Pro_Woodland)                 0.08009658  0.34074733 *
-cond(Pro_Rivers)                  -0.07805070  0.14378005
-cond(Pro_Harvest_2019:Pro_Rivers) -0.18249657  0.01721941
+cond((Int))                        3.22412980  3.33418969
+cond(Pro_Harvest_2019)            -0.26441996 -0.15519212 *
+cond(Pro_Rivers)                  -0.10323074  0.01126615
+cond(Pro_Woodland)                -0.04648224  0.07297030
+cond(Pro_Harvest_2019:Pro_Rivers) -0.03863956  0.05536188
 '''
 summary(Model_Pro_2019_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
-                                  Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                        6.70241    0.08138     0.08180  81.932  < 2e-16 ***
-cond(Pro_Harvest_2019)            -0.38999    0.04899     0.04924   7.920  < 2e-16 ***
-cond(Pro_Woodland)                 0.21042    0.06615     0.06649   3.165  0.00155 ** 
-cond(Pro_Rivers)                   0.01547    0.04197     0.04215   0.367  0.71356    
-cond(Pro_Harvest_2019:Pro_Rivers) -0.02147    0.04450     0.04458   0.482  0.63016    
+                                   Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                        3.279160   0.027921    0.028077 116.792   <2e-16 ***
+cond(Pro_Harvest_2019)            -0.209806   0.027710    0.027865   7.529   <2e-16 ***
+cond(Pro_Rivers)                  -0.030930   0.032142    0.032240   0.959    0.337    
+cond(Pro_Woodland)                 0.001946   0.012527    0.012588   0.155    0.877    
+cond(Pro_Harvest_2019:Pro_Rivers)  0.001187   0.009446    0.009494   0.125    0.901    
  
 (conditional average) 
-                                  Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))                        6.70241    0.08138     0.08180  81.932  < 2e-16 ***
-cond(Pro_Harvest_2019)            -0.38999    0.04899     0.04924   7.920  < 2e-16 ***
-cond(Pro_Woodland)                 0.21042    0.06615     0.06649   3.165  0.00155 ** 
-cond(Pro_Rivers)                   0.03286    0.05630     0.05659   0.581  0.56141    
-cond(Pro_Harvest_2019:Pro_Rivers) -0.08264    0.05068     0.05095   1.622  0.10481
+                                   Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                        3.279160   0.027921    0.028077 116.792   <2e-16 ***
+cond(Pro_Harvest_2019)            -0.209806   0.027710    0.027865   7.529   <2e-16 ***
+cond(Pro_Rivers)                  -0.045982   0.029047    0.029209   1.574    0.115    
+cond(Pro_Woodland)                 0.013244   0.030303    0.030473   0.435    0.664    
+cond(Pro_Harvest_2019:Pro_Rivers)  0.008361   0.023847    0.023980   0.349    0.727 
 '''
 # Model assumption
 plot(simulateResiduals(Model_Pro_2019_nb))
@@ -1290,7 +1758,7 @@ rm(Model_Pro_2019_nb,Model_Pro_2019_nb_Dredge,Model_Pro_2019_nb_Subset,
    Model_Pro_2019_nb_Ave,res_scaled,Plantation,Loc)
 
 #2018
-Model_Pro_2018_nb<-glmmTMB(Bram_Abu~Pro_Rivers+Pro_Woodland+Pro_Harvest_2018+
+Model_Pro_2018_nb<-glmmTMB(Bram_Abu_Sq~Pro_Rivers+Pro_Woodland+Pro_Harvest_2018+
                              Pro_Rivers:Pro_Harvest_2018+(1|PLANTATI_1),
                            data=df_Bram_Pro_scale,family="nbinom2")
 check_collinearity(Model_Pro_2018_nb)
@@ -1298,46 +1766,49 @@ check_collinearity(Model_Pro_2018_nb)
 Low Correlation
 
                         Term  VIF Increased SE Tolerance
-                  Pro_Rivers 1.01         1.00      0.99
-                Pro_Woodland 1.02         1.01      0.98
-            Pro_Harvest_2018 1.02         1.01      0.98
- Pro_Rivers:Pro_Harvest_2018 1.00         1.00      1.00
+                  Pro_Rivers 1.04         1.02      0.96
+                Pro_Woodland 1.03         1.01      0.97
+            Pro_Harvest_2018 1.01         1.00      0.99
+ Pro_Rivers:Pro_Harvest_2018 1.03         1.01      0.97
 '''
 options(na.action="na.fail")
 Model_Pro_2018_nb_Dredge<-dredge(Model_Pro_2018_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Pro_2018_nb_Subset<-subset(Model_Pro_2018_nb_Dredge,delta<2)
 Model_Pro_2018_nb_Ave<-model.avg(Model_Pro_2018_nb_Subset)
-importance(Model_Pro_2018_nb_Ave)
+sw(Model_Pro_2018_nb_Ave)
 '''
-                     cond(Pro_Harvest_2018) cond(Pro_Woodland) cond(Pro_Rivers)
-Sum of weights:      1.00                   1.00               0.27            
-N containing models:    2                      2                  1
+                     cond(Pro_Harvest_2018) cond(Pro_Woodland) cond(Pro_Rivers) cond(Pro_Harvest_2018:Pro_Rivers)
+Sum of weights:      1.00                   1.00               0.78             0.21                             
+N containing models:    3                      3                  2                1 
 '''
 confint(Model_Pro_2018_nb_Ave)
 '''
-                             2.5 %     97.5 %
-cond((Int))             6.50474559  6.8901112
-cond(Pro_Harvest_2018) -0.40627716 -0.1977936 *
-cond(Pro_Woodland)      0.14792003  0.4174112 *
-cond(Pro_Rivers)       -0.09537794  0.1361539
+                                         2.5 %       97.5 %
+cond((Int))                        3.206549038  3.350467476
+cond(Pro_Harvest_2018)            -0.221678407 -0.102904563 *
+cond(Pro_Rivers)                  -0.121201474 -0.001128266 *
+cond(Pro_Woodland)                 0.008298699  0.129432361 *
+cond(Pro_Harvest_2018:Pro_Rivers) -0.066678723  0.042768046
 '''
 summary(Model_Pro_2018_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
-                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.697428   0.097800    0.098309  68.126  < 2e-16 ***
-cond(Pro_Harvest_2018) -0.302035   0.052910    0.053186   5.679  < 2e-16 ***
-cond(Pro_Woodland)      0.282666   0.068393    0.068749   4.112 3.93e-05 ***
-cond(Pro_Rivers)        0.005517   0.031879    0.032032   0.172    0.863    
+                                   Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                        3.278508   0.036510    0.036715  89.297   <2e-16 ***
+cond(Pro_Harvest_2018)            -0.162291   0.030131    0.030300   5.356    1e-07 ***
+cond(Pro_Rivers)                  -0.047815   0.036928    0.037038   1.291   0.1967    
+cond(Pro_Woodland)                 0.068866   0.030731    0.030902   2.229   0.0258 *  
+cond(Pro_Harvest_2018:Pro_Rivers) -0.002562   0.013758    0.013825   0.185   0.8530    
  
 (conditional average) 
-                       Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.69743    0.09780     0.09831  68.126  < 2e-16 ***
-cond(Pro_Harvest_2018) -0.30204    0.05291     0.05319   5.679  < 2e-16 ***
-cond(Pro_Woodland)      0.28267    0.06839     0.06875   4.112 3.93e-05 ***
-cond(Pro_Rivers)        0.02039    0.05876     0.05907   0.345     0.73 
+                                  Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))                        3.27851    0.03651     0.03671  89.297   <2e-16 ***
+cond(Pro_Harvest_2018)            -0.16229    0.03013     0.03030   5.356    1e-07 ***
+cond(Pro_Rivers)                  -0.06116    0.03046     0.03063   1.997   0.0458 *  
+cond(Pro_Woodland)                 0.06887    0.03073     0.03090   2.229   0.0258 *  
+cond(Pro_Harvest_2018:Pro_Rivers) -0.01196    0.02776     0.02792   0.428   0.6685
 '''
 # Model assumption
 plot(simulateResiduals(Model_Pro_2018_nb))
@@ -1353,7 +1824,7 @@ rm(Model_Pro_2018_nb,Model_Pro_2018_nb_Dredge,Model_Pro_2018_nb_Subset,
    Model_Pro_2018_nb_Ave,res_scaled,Plantation,Loc)
 
 #2017
-Model_Pro_2017_nb<-glmmTMB(Bram_Abu~Pro_Rivers+Pro_Woodland+Pro_Harvest_2017+
+Model_Pro_2017_nb<-glmmTMB(Bram_Abu_Sq~Pro_Rivers+Pro_Woodland+Pro_Harvest_2017+
                              Pro_Rivers:Pro_Harvest_2017+(1|PLANTATI_1),
                            data=df_Bram_Pro_scale,family="nbinom2")
 check_collinearity(Model_Pro_2017_nb)
@@ -1361,46 +1832,46 @@ check_collinearity(Model_Pro_2017_nb)
 Low Correlation
 
                         Term  VIF Increased SE Tolerance
-                  Pro_Rivers 1.00         1.00      1.00
-                Pro_Woodland 1.02         1.01      0.98
-            Pro_Harvest_2017 1.02         1.01      0.98
- Pro_Rivers:Pro_Harvest_2017 1.02         1.01      0.98
+                  Pro_Rivers 1.02         1.01      0.98
+                Pro_Woodland 1.04         1.02      0.96
+            Pro_Harvest_2017 1.06         1.03      0.95
+ Pro_Rivers:Pro_Harvest_2017 1.03         1.02      0.97
 '''
 options(na.action="na.fail")
 Model_Pro_2017_nb_Dredge<-dredge(Model_Pro_2017_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Pro_2017_nb_Subset<-subset(Model_Pro_2017_nb_Dredge,delta<2)
 Model_Pro_2017_nb_Ave<-model.avg(Model_Pro_2017_nb_Subset)
-importance(Model_Pro_2017_nb_Ave)
+sw(Model_Pro_2017_nb_Ave)
 '''
-                     cond(Pro_Woodland) cond(Pro_Harvest_2017) cond(Pro_Rivers)
-Sum of weights:      1.00               0.72                   0.25            
-N containing models:    3                  2                      1 
+                     cond(Pro_Harvest_2017) cond(Pro_Woodland) cond(Pro_Rivers)
+Sum of weights:      1.00                   1.00               0.62            
+N containing models:    2                      2                  1
 '''
 confint(Model_Pro_2017_nb_Ave)
 '''
-                             2.5 %      97.5 %
-cond((Int))             6.50005914 6.939657545
-cond(Pro_Harvest_2017) -0.22274726 0.007878911
-cond(Pro_Woodland)      0.17029017 0.462603003 *
-cond(Pro_Rivers)       -0.06534086 0.177372742
+                              2.5 %       97.5 %
+cond((Int))             3.236044187  3.355092475
+cond(Pro_Harvest_2017) -0.155371237 -0.036000125 *
+cond(Pro_Rivers)       -0.119634505  0.006095771
+cond(Pro_Woodland)      0.008461412  0.138424586 *
 '''
 summary(Model_Pro_2017_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.71986    0.11157     0.11214  59.921  < 2e-16 ***
-cond(Pro_Harvest_2017) -0.07736    0.06923     0.06942   1.114    0.265    
-cond(Pro_Woodland)      0.31645    0.07419     0.07457   4.244  2.2e-05 ***
-cond(Pro_Rivers)        0.01400    0.03920     0.03933   0.356    0.722    
+cond((Int))             3.29557    0.03020     0.03037 108.514  < 2e-16 ***
+cond(Pro_Harvest_2017) -0.09569    0.03028     0.03045   3.142  0.00168 ** 
+cond(Pro_Rivers)       -0.03524    0.03729     0.03738   0.943  0.34582    
+cond(Pro_Woodland)      0.07344    0.03297     0.03315   2.215  0.02675 *  
  
 (conditional average) 
                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.71986    0.11157     0.11214  59.921  < 2e-16 ***
-cond(Pro_Harvest_2017) -0.10743    0.05853     0.05883   1.826   0.0678 .  
-cond(Pro_Woodland)      0.31645    0.07419     0.07457   4.244  2.2e-05 ***
-cond(Pro_Rivers)        0.05602    0.06160     0.06192   0.905   0.3656 
+cond((Int))             3.29557    0.03020     0.03037 108.514  < 2e-16 ***
+cond(Pro_Harvest_2017) -0.09569    0.03028     0.03045   3.142  0.00168 ** 
+cond(Pro_Rivers)       -0.05677    0.03190     0.03207   1.770  0.07674 .  
+cond(Pro_Woodland)      0.07344    0.03297     0.03315   2.215  0.02675 *
 '''
 # Model assumption
 plot(simulateResiduals(Model_Pro_2017_nb))
@@ -1416,7 +1887,7 @@ rm(Model_Pro_2017_nb,Model_Pro_2017_nb_Dredge,Model_Pro_2017_nb_Subset,
    Model_Pro_2017_nb_Ave,res_scaled,Plantation,Loc)
 
 #2016
-Model_Pro_2016_nb<-glmmTMB(Bram_Abu~Pro_Rivers+Pro_Woodland+Pro_Harvest_2016+
+Model_Pro_2016_nb<-glmmTMB(Bram_Abu_Sq~Pro_Rivers+Pro_Woodland+Pro_Harvest_2016+
                              Pro_Rivers:Pro_Harvest_2016+(1|PLANTATI_1),
                            data=df_Bram_Pro_scale,family="nbinom2")
 check_collinearity(Model_Pro_2016_nb)
@@ -1425,45 +1896,45 @@ Low Correlation
 
                         Term  VIF Increased SE Tolerance
                   Pro_Rivers 1.02         1.01      0.98
-                Pro_Woodland 1.01         1.01      0.99
-            Pro_Harvest_2016 1.01         1.00      0.99
- Pro_Rivers:Pro_Harvest_2016 1.03         1.01      0.97
+                Pro_Woodland 1.03         1.01      0.97
+            Pro_Harvest_2016 1.01         1.01      0.99
+ Pro_Rivers:Pro_Harvest_2016 1.01         1.01      0.99
 '''
 options(na.action="na.fail")
 Model_Pro_2016_nb_Dredge<-dredge(Model_Pro_2016_nb,evaluate=TRUE,rank=AICc)
 options(na.action="na.omit")
 Model_Pro_2016_nb_Subset<-subset(Model_Pro_2016_nb_Dredge,delta<2)
 Model_Pro_2016_nb_Ave<-model.avg(Model_Pro_2016_nb_Subset)
-importance(Model_Pro_2016_nb_Ave)
+sw(Model_Pro_2016_nb_Ave)
 '''
-                     cond(Pro_Woodland) cond(Pro_Rivers) cond(Pro_Harvest_2016)
-Sum of weights:      1.00               0.25             0.24                  
-N containing models:    3                  1                1
+                     cond(Pro_Rivers) cond(Pro_Woodland) cond(Pro_Harvest_2016)
+Sum of weights:      0.67             0.66               0.13                  
+N containing models:    3                3                  1 
 '''
 confint(Model_Pro_2016_nb_Ave)
 '''
-                             2.5 %    97.5 %
-cond((Int))             6.50840071 6.9444387
-cond(Pro_Woodland)      0.18053424 0.4730813 *
-cond(Pro_Rivers)       -0.07190741 0.1721730
-cond(Pro_Harvest_2016) -0.07676976 0.1697576
+                             2.5 %      97.5 %
+cond((Int))             3.20138575 3.373620110
+cond(Pro_Rivers)       -0.12255385 0.005704191
+cond(Pro_Woodland)     -0.00899035 0.124701466
+cond(Pro_Harvest_2016) -0.07362661 0.050729113
 '''
 summary(Model_Pro_2016_nb_Ave)
 '''
 Model-averaged coefficients:  
 (full average) 
-                       Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.72642    0.11066     0.11124  60.470  < 2e-16 ***
-cond(Pro_Woodland)      0.32681    0.07425     0.07463   4.379 1.19e-05 ***
-cond(Pro_Rivers)        0.01258    0.03788     0.03801   0.331    0.741    
-cond(Pro_Harvest_2016)  0.01109    0.03642     0.03655   0.303    0.762    
+                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
+cond((Int))             3.287503   0.043695    0.043938  74.821   <2e-16 ***
+cond(Pro_Rivers)       -0.039348   0.038259    0.038362   1.026    0.305    
+cond(Pro_Woodland)      0.038163   0.038864    0.038972   0.979    0.327    
+cond(Pro_Harvest_2016) -0.001492   0.012024    0.012085   0.123    0.902    
  
 (conditional average) 
                        Estimate Std. Error Adjusted SE z value Pr(>|z|)    
-cond((Int))             6.72642    0.11066     0.11124  60.470  < 2e-16 ***
-cond(Pro_Woodland)      0.32681    0.07425     0.07463   4.379 1.19e-05 ***
-cond(Pro_Rivers)        0.05013    0.06194     0.06227   0.805    0.421    
-cond(Pro_Harvest_2016)  0.04649    0.06257     0.06289   0.739    0.460 
+cond((Int))             3.28750    0.04370     0.04394  74.821   <2e-16 ***
+cond(Pro_Rivers)       -0.05842    0.03254     0.03272   1.786   0.0742 .  
+cond(Pro_Woodland)      0.05786    0.03392     0.03411   1.696   0.0898 .  
+cond(Pro_Harvest_2016) -0.01145    0.03155     0.03172   0.361   0.7182 
 '''
 # Model assumption
 plot(simulateResiduals(Model_Pro_2016_nb))
@@ -1479,10 +1950,10 @@ rm(Model_Pro_2016_nb,Model_Pro_2016_nb_Dredge,Model_Pro_2016_nb_Subset,
    Model_Pro_2016_nb_Ave,res_scaled,Plantation,Loc)
 
 # Plot significant variables together
-a<-ggplot(data=df_Bram_Pro,aes(x=Pro_Woodland,y=Bram_Abu))+
+a<-ggplot(data=df_Bram_Pro,aes(x=Pro_Woodland,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in production area\n",x="\nDistance to woodlands (m)",tag="a)")+
+  labs(y="Bramble abundance in production area (squared)\n",x="\nDistance to woodlands (m)",tag="a)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1490,10 +1961,10 @@ a<-ggplot(data=df_Bram_Pro,aes(x=Pro_Woodland,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-b<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2020,y=Bram_Abu))+
+b<-ggplot(data=df_Bram_Pro,aes(x=Pro_Rivers,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in production area\n",x="\nDistance to harvested trees 2020 (m)",tag="b)")+
+  labs(y="Bramble abundance in production area (squared)\n",x="\nDistance to rivers (m)",tag="b)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1501,10 +1972,10 @@ b<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2020,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-c<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2019,y=Bram_Abu))+
+c<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2020,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in production area\n",x="\nDistance to harvested trees 2019 (m)",tag="c)")+
+  labs(y="Bramble abundance in production area (squared)\n",x="\nDistance to harvested trees 2020 (m)",tag="c)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1512,10 +1983,10 @@ c<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2019,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-d<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2018,y=Bram_Abu))+
+d<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2019,y=Bram_Abu_Sq))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
-  labs(y="Bramble abundance in production area\n",x="\nDistance to harvested trees 2018 (m)",tag="d)")+
+  labs(y="Bramble abundance in production area (squared)\n",x="\nDistance to harvested trees 2019 (m)",tag="d)")+
   theme(axis.title=element_text(size=14),
         axis.text=element_text(size=13,colour="black"),
         axis.ticks=element_line(size=0.8,colour="black"),
@@ -1523,8 +1994,30 @@ d<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2018,y=Bram_Abu))+
         panel.grid=element_blank(),
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
-ggarrange(a,b,c,d,ncol=2,nrow=2) # 14 x 8.5
-rm(a,b,c,d,df_Bram_Pro,df_Bram_Pro_scale)
+e<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2018,y=Bram_Abu_Sq))+
+  geom_point(colour="black",shape=21,size=2,fill="light blue")+
+  geom_smooth(method="lm",colour="black",se=FALSE)+
+  labs(y="Bramble abundance in production area (squared)\n",x="\nDistance to harvested trees 2018 (m)",tag="e)")+
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=13,colour="black"),
+        axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),
+        panel.grid=element_blank(),
+        panel.background=element_blank(),
+        plot.tag=element_text(hjust=0.5))
+f<-ggplot(data=df_Bram_Pro,aes(x=Pro_Harvest_2017,y=Bram_Abu_Sq))+
+  geom_point(colour="black",shape=21,size=2,fill="light blue")+
+  geom_smooth(method="lm",colour="black",se=FALSE)+
+  labs(y="Bramble abundance in production area (squared)\n",x="\nDistance to harvested trees 2017 (m)",tag="f)")+
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=13,colour="black"),
+        axis.ticks=element_line(size=0.8,colour="black"),
+        axis.line=element_line(size=0.8,colour="black"),
+        panel.grid=element_blank(),
+        panel.background=element_blank(),
+        plot.tag=element_text(hjust=0.5))
+ggarrange(a,b,c,d,e,f,ncol=3,nrow=2) # 15 x 10
+rm(a,b,c,d,e,f,df_Bram_Pro,df_Bram_Pro_scale)
 
 ###########################################################################
 # What is the local impact of bramble on plants and grasshoppers?
@@ -1542,30 +2035,6 @@ Veg<-Veg%>%dplyr::select(!ends_with(c("Cov")))
 Veg<-Veg%>%dplyr::select(!ends_with(c("Abu")))
 Veg<-as.data.frame(cbind(Veg,clip))
 rm(clip)
-
-# Outliers
-dotchart(Veg$Tree_Rich,ylab="Tree_Rich")
-dotchart(Veg$Tree_Hei,ylab="Tree_Hei")
-dotchart(Veg$Shrub_Rich,ylab="Shrub_Rich")
-dotchart(Veg$Shrub_Hei,ylab="Shrub_Hei")
-dotchart(Veg$Suc_Rich,ylab="Suc_Rich")
-dotchart(Veg$Suc_Hei,ylab="Suc_Hei")
-dotchart(Veg$Fern_Rich,ylab="Fern_Rich")
-dotchart(Veg$Fern_Hei,ylab="Fern_Hei")
-dotchart(Veg$Sed_Rich,ylab="Sed_Rich")
-dotchart(Veg$Sed_Hei,ylab="Sed_Hei")
-dotchart(Veg$Forb_Rich,ylab="Forb_Rich")
-dotchart(Veg$Forb_Hei,ylab="Forb_Hei")
-dotchart(Veg$Bulb_Rich,ylab="Bulb_Rich")
-dotchart(Veg$Bulb_Hei,ylab="Bulb_Hei")
-dotchart(Veg$Grass_Rich,ylab="Grass_Rich")
-dotchart(Veg$Grass_Hei,ylab="Grass_Hei")
-dotchart(Veg$Bram_Abu,ylab="Bram_Abu")
-dotchart(Veg$Bram_Cov,ylab="Bram_Cov")
-dotchart(Veg$Grou_Cov,ylab="Grou_Cov")
-dotchart(Veg$Rock_Cov,ylab="Rock_Cov")
-dotchart(Veg$Climb_Rich,ylab="Climb_Rich")
-dotchart(Veg$Climb_Hei,ylab="Climb_Hei")
 
 # Extract vegetation richness
 Veg_Rich<-Veg%>%dplyr::select(ends_with(c("Rich")))
@@ -1594,7 +2063,7 @@ rm(Clip,features)
 
 # Modelling Bramble abundance
 Model_Veg_Rich<-glmmTMB(Veg_Rich~Bram_Abu+(1|Site_ID)+(1|Plantation),
-                        data=Veg_Scale,family="poisson")
+                        data=Veg_Scale,family="poisson")# nbinom2
 confint(Model_Veg_Rich)
 '''
                                           2.5 %      97.5 %    Estimate
@@ -1622,7 +2091,7 @@ plot(residuals(Model_Veg_Rich))
 plot(simulateResiduals(Model_Veg_Rich))
 rm(Model_Veg_Rich)
 # Plot variables
-ggplot(data=Veg,aes(x=Bram_Abu,y=Veg_Rich))+
+a<-ggplot(data=Veg,aes(x=Bram_Abu,y=Veg_Rich))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
   labs(y="Plant species richness\n",x="\nBramble abundance")+
@@ -1805,37 +2274,7 @@ testSpatialAutocorrelation(simulateResiduals(Model_hop_Rich),
                            x=df_Scale$Long_X,y=df_Scale$Lat_Y)
 rm(Model_hop_Rich)
 
-# Modelling Grasshopper richness Bram_Cov
-Model_hop_Rich<-glmmTMB(hop_exShan~Bram_Abu+(1|Plantation),
-                        data=df_Scale,family="gaussian")
-confint(Model_hop_Rich)
-'''
-                                         2.5 %    97.5 %   Estimate
-cond.(Intercept)                     8.1758899 10.651599  9.4137446
-cond.Bram_Abu                       -0.8537046  0.643342 -0.1051813
-Plantation.cond.Std.Dev.(Intercept)  0.3569254  2.872029  1.0124723
-'''
-summary(Model_hop_Rich)
-'''
-Conditional model:
-            Estimate Std. Error z value Pr(>|z|)    
-(Intercept)   9.4137     0.6316  14.905   <2e-16 ***
-Bram_Abu     -0.1052     0.3819  -0.275    0.783 
-'''
-r.squaredGLMM(Model_hop_Rich)
-'''
-             R2m       R2c
-[1,] 0.001413845 0.1324199
-'''
-# Model assumption
-plot(residuals(Model_hop_Rich))
-plot(simulateResiduals(Model_hop_Rich))
-testDispersion(simulateResiduals(Model_hop_Rich))
-testSpatialAutocorrelation(simulateResiduals(Model_hop_Rich),
-                           x=df_Scale$Long_X,y=df_Scale$Lat_Y)
-rm(Model_hop_Rich)
-
-# Modelling Low value grasshopper species Bram_Abu
+# Modelling Low value grasshopper species
 Model_Low_hop_Rich<-glmmTMB(Low_hop_Rich~Bram_Abu+(1|Plantation),
                             data=df_Scale,family="gaussian")
 confint(Model_Low_hop_Rich)
@@ -1865,37 +2304,7 @@ testSpatialAutocorrelation(simulateResiduals(Model_Low_hop_Rich),
                            x=df_Scale$Long_X,y=df_Scale$Lat_Y)
 rm(Model_Low_hop_Rich)
 
-# Modelling Low value grasshopper species Bram_Cov
-Model_Low_hop_Rich<-glmmTMB(Low_exShan~Bram_Abu+(1|Plantation),
-                            data=df_Scale,family="gaussian")
-confint(Model_Low_hop_Rich)
-'''
-                                         2.5 %    97.5 %  Estimate
-cond.(Intercept)                     5.0409256 6.6815205 5.8612230
-cond.Bram_Abu                       -0.4398466 0.6422458 0.1011996
-Plantation.cond.Std.Dev.(Intercept)  0.1968465 2.0269204 0.6316583
-'''
-summary(Model_Low_hop_Rich)
-'''
-Conditional model:
-            Estimate Std. Error z value Pr(>|z|)    
-(Intercept)   5.8612     0.4185  14.004   <2e-16 ***
-Bram_Abu      0.1012     0.2760   0.367    0.714 
-'''
-r.squaredGLMM(Model_Low_hop_Rich)
-'''
-             R2m       R2c
-[1,] 0.002559794 0.1022865
-'''
-# Model assumption
-plot(residuals(Model_Low_hop_Rich))
-plot(simulateResiduals(Model_Low_hop_Rich))
-testDispersion(simulateResiduals(Model_Low_hop_Rich))
-testSpatialAutocorrelation(simulateResiduals(Model_Low_hop_Rich),
-                           x=df_Scale$Long_X,y=df_Scale$Lat_Y)
-rm(Model_Low_hop_Rich)
-
-# Modelling Intermediate value grasshopper species Bram_Abu
+# Modelling Intermediate value grasshopper species
 Model_Intermediate_hop_Rich<-glmmTMB(Intermediate_hop_Rich~Bram_Abu+(1|Plantation),
                                      data=df_Scale,family="gaussian")
 confint(Model_Intermediate_hop_Rich)
@@ -1925,7 +2334,7 @@ testSpatialAutocorrelation(simulateResiduals(Model_Intermediate_hop_Rich),
                            x=df_Scale$Long_X,y=df_Scale$Lat_Y)
 rm(Model_Intermediate_hop_Rich)
 # Plot variables
-ggplot(data=df,aes(x=Bram_Abu,y=Intermediate_hop_Rich))+
+b<-ggplot(data=df,aes(x=Bram_Abu,y=Intermediate_hop_Rich))+
   geom_point(colour="black",shape=21,size=2,fill="light blue")+
   geom_smooth(method="lm",colour="black",se=FALSE)+
   labs(y="Intermediate value grasshopper species\n",x="\nBramble cover")+
@@ -1937,37 +2346,7 @@ ggplot(data=df,aes(x=Bram_Abu,y=Intermediate_hop_Rich))+
         panel.background=element_blank(),
         plot.tag=element_text(hjust=0.5))
 
-# Modelling Intermediate value grasshopper species Bram_Cov
-Model_Intermediate_hop_Rich<-glmmTMB(Intermediate_exShan~Bram_Abu+(1|Plantation),
-                                     data=df_Scale,family="gaussian")
-confint(Model_Intermediate_hop_Rich)
-'''
-                                            2.5 %       97.5 %    Estimate
-cond.(Intercept)                     3.267233e+00 3.963644e+00  3.61543847
-cond.Bram_Abu                       -6.654051e-01 4.049755e-02 -0.31245379
-Plantation.cond.Std.Dev.(Intercept)  1.041788e-07 6.272423e+04  0.08083647
-'''
-summary(Model_Intermediate_hop_Rich)
-'''
-Conditional model:
-            Estimate Std. Error z value Pr(>|z|)    
-(Intercept)   3.6154     0.1777  20.350   <2e-16 ***
-Bram_Abu     -0.3125     0.1801  -1.735   0.0827 .
-'''
-r.squaredGLMM(Model_Intermediate_hop_Rich)
-'''
-            R2m        R2c
-[1,] 0.06119043 0.06528611
-'''
-# Model assumption
-plot(residuals(Model_Intermediate_hop_Rich))
-plot(simulateResiduals(Model_Intermediate_hop_Rich))
-testDispersion(simulateResiduals(Model_Intermediate_hop_Rich))
-testSpatialAutocorrelation(simulateResiduals(Model_Intermediate_hop_Rich),
-                           x=df_Scale$Long_X,y=df_Scale$Lat_Y)
-rm(Model_Intermediate_hop_Rich)
-
-# Modelling High value grasshopper species Bram_Abu
+# Modelling High value grasshopper species
 Model_High_hop_Rich<-glmmTMB(High_hop_Rich~Bram_Abu+(1|Plantation),
                              data=df_Scale,family="poisson")
 confint(Model_High_hop_Rich)
@@ -1999,39 +2378,7 @@ testSpatialAutocorrelation(simulateResiduals(Model_High_hop_Rich),
                            x=df_Scale$Long_X,y=df_Scale$Lat_Y)
 rm(Model_High_hop_Rich)
 
-# Modelling High value grasshopper species
-Model_High_hop_Rich<-glmmTMB(High_exShan~Bram_Abu+(1|Plantation),
-                             data=df_Scale,family="poisson")
-confint(Model_High_hop_Rich)
-'''
-                                          2.5 %    97.5 %     Estimate
-cond.(Intercept)                    -0.06136097 0.4382118 1.884254e-01
-cond.Bram_Abu                       -0.23374444 0.2625332 1.439437e-02
-Plantation.cond.Std.Dev.(Intercept)  0.00000000       Inf 1.570107e-05
-'''
-summary(Model_High_hop_Rich)
-'''
-Conditional model:
-            Estimate Std. Error z value Pr(>|z|)
-(Intercept)  0.18843    0.12744   1.478    0.139
-Bram_Abu     0.01439    0.12660   0.114    0.909
-'''
-r.squaredGLMM(Model_High_hop_Rich)
-'''
-                   R2m          R2c
-delta     0.0002501228 0.0002501231
-lognormal 0.0003433119 0.0003433123
-trigamma  0.0001648835 0.0001648837
-'''
-# Model assumption
-plot(residuals(Model_High_hop_Rich))
-plot(simulateResiduals(Model_High_hop_Rich))
-testDispersion(simulateResiduals(Model_High_hop_Rich))
-testSpatialAutocorrelation(simulateResiduals(Model_High_hop_Rich),
-                           x=df_Scale$Long_X,y=df_Scale$Lat_Y)
-rm(Model_High_hop_Rich)
-
-# Modelling Grasshopper richness Bram_Abu
+# Modelling Caelifera richness
 Model_Caelifera_hop_Rich<-glmmTMB(Caelifera_hop_Rich~Bram_Abu+(1|Plantation),
                                   data=df_Scale,family="gaussian")
 confint(Model_Caelifera_hop_Rich)
@@ -2061,37 +2408,7 @@ testSpatialAutocorrelation(simulateResiduals(Model_Caelifera_hop_Rich),
                            x=df_Scale$Long_X,y=df_Scale$Lat_Y)
 rm(Model_Caelifera_hop_Rich)
 
-# Modelling Grasshopper richness Bram_Cov
-Model_Caelifera_hop_Rich<-glmmTMB(Caelifera_exShan~Bram_Abu+(1|Plantation),
-                                  data=df_Scale,family="gaussian")
-confint(Model_Caelifera_hop_Rich)
-'''
-                                         2.5 %    97.5 %   Estimate
-cond.(Intercept)                     6.8297513 8.9502431 7.88999721
-cond.Bram_Abu                       -0.6314177 0.7032967 0.03593949
-Plantation.cond.Std.Dev.(Intercept)  0.2819053 2.5806181 0.85293014
-'''
-summary(Model_Caelifera_hop_Rich)
-'''
-Conditional model:
-            Estimate Std. Error z value Pr(>|z|)    
-(Intercept)  7.89000    0.54095  14.585   <2e-16 ***
-Bram_Abu     0.03594    0.34049   0.106    0.916
-'''
-r.squaredGLMM(Model_Caelifera_hop_Rich)
-'''
-              R2m       R2c
-[1,] 0.0002134731 0.1204472
-'''
-# Model assumption
-plot(residuals(Model_Caelifera_hop_Rich))
-plot(simulateResiduals(Model_Caelifera_hop_Rich))
-testDispersion(simulateResiduals(Model_Caelifera_hop_Rich))
-testSpatialAutocorrelation(simulateResiduals(Model_Caelifera_hop_Rich),
-                           x=df_Scale$Long_X,y=df_Scale$Lat_Y)
-rm(Model_Caelifera_hop_Rich)
-
-# Modelling Grasshopper richness Bram_Abu
+# Modelling Ensifera richness 
 Model_Ensifera_hop_Rich<-glmmTMB(Ensifera_hop_Rich~Bram_Abu+(1|Plantation),
                                  data=df_Scale,family="poisson")
 confint(Model_Ensifera_hop_Rich)
@@ -2123,41 +2440,9 @@ testSpatialAutocorrelation(simulateResiduals(Model_Ensifera_hop_Rich),
                            x=df_Scale$Long_X,y=df_Scale$Lat_Y)
 rm(Model_Ensifera_hop_Rich)
 
-# Modelling Grasshopper richness Bram_Cov
-Model_Ensifera_hop_Rich<-glmmTMB(Ensifera_exShan~Bram_Abu+(1|Plantation),
-                                 data=df_Scale,family="poisson")
-confint(Model_Ensifera_hop_Rich)
-'''
-                                         2.5 %     97.5 %      Estimate
-cond.(Intercept)                     0.5873385 0.96134763  7.743431e-01
-cond.Bram_Abu                       -0.3295511 0.09834826 -1.156014e-01
-Plantation.cond.Std.Dev.(Intercept)  0.0000000        Inf  1.624334e-05
-'''
-summary(Model_Ensifera_hop_Rich)
-'''
-Conditional model:
-            Estimate Std. Error z value Pr(>|z|)    
-(Intercept)  0.77434    0.09541   8.116 4.83e-16 ***
-Bram_Abu    -0.11560    0.10916  -1.059     0.29
-'''
-r.squaredGLMM(Model_Ensifera_hop_Rich)
-'''
-                 R2m        R2c
-delta     0.02833648 0.02833648
-lognormal 0.03421355 0.03421355
-trigamma  0.02257209 0.02257209
-'''
-# Model assumption
-plot(residuals(Model_Ensifera_hop_Rich))
-plot(simulateResiduals(Model_Ensifera_hop_Rich))
-testDispersion(simulateResiduals(Model_Ensifera_hop_Rich))
-testSpatialAutocorrelation(simulateResiduals(Model_Ensifera_hop_Rich),
-                           x=df_Scale$Long_X,y=df_Scale$Lat_Y)
-
 # Plot
 ggarrange(a,b,ncol=2,nrow=1) # 8x4
 rm(a,b,Model_Ensifera_hop_Rich,df_Scale,df)
-
 
 ###########################################################################
 # How will uncontrolled bramble invasion impact the landscape?
@@ -2166,12 +2451,10 @@ rm(a,b,Model_Ensifera_hop_Rich,df_Scale,df)
 #### Grasshopper distribution modeling ####
 # Load and clip variables
 Study_ROI<-readOGR("Shapefiles/Plantations_Clipped.shp")
-NDVI<-stack("Products/Cliped_SR_S2.tif",bands=c(3,4))
-names(NDVI)<-c("Red","Infrared")
-NDVI<-(NDVI[["Infrared"]]-NDVI[["Red"]])/(NDVI[["Infrared"]]+NDVI[["Red"]])
-NDVI[NDVI>1]<-NA
-NDVI[NDVI<(-1)]<-NA
-Land_Use<-raster("Products/Map_ranger_SR_S2.tif")
+NDVI<-raster("Products/Cliped_SR_S2_VI.tif",band=11)
+NDVI<-reclassify(NDVI,cbind(-Inf,-1,NA),right=FALSE)
+NDVI<-reclassify(NDVI,cbind(1,Inf,NA))
+Land_Use<-raster("Products/Map_ranger_SR_S2_VI.tif")
 Rivers<-raster("Products/Distance_Rivers.tif")
 Elv<-raster("Raster_Data/SUDEM/SUDEM_Clip_Pro.tif")
 Aspect<-raster("Raster_Data/SUDEM/Aspect_Clip_Pro.tif")
@@ -2196,16 +2479,16 @@ rm(Study_ROI)
 # Rescale variables
 template_rst<-raster(xmn=200250.2,xmx=261647.7,ymn=6707441,ymx=6766053,resolution=10,
                      crs=projection("+proj=utm +zone=36 +south +datum=WGS84 +units=m +no_defs"))
-NDVI<-resample(NDVI,template_rst)
-Land_Use<-resample(Land_Use,template_rst,method="ngb")
-Rivers<-resample(Rivers,template_rst)
-Elv<-resample(Elv,template_rst)
-Aspect<-resample(Aspect,template_rst)
-Plantation_Edge<-resample(Plantation_Edge,template_rst)
-Fire_hist<-resample(Fire_hist,template_rst)
+NDVI<-raster::resample(NDVI,template_rst,method="bilinear")
+Land_Use<-raster::resample(Land_Use,template_rst,method="ngb")
+Rivers<-raster::resample(Rivers,template_rst,method="bilinear")
+Elv<-raster::resample(Elv,template_rst,method="bilinear")
+Aspect<-raster::resample(Aspect,template_rst,method="bilinear")
+Plantation_Edge<-raster::resample(Plantation_Edge,template_rst,method="bilinear")
+Fire_hist<-raster::resample(Fire_hist,template_rst,method="bilinear")
 rm(template_rst)
 
-# Clip and save rasters
+# Clip rasters
 Plantation_Boundaries<-readOGR("Shapefiles/Plantation_Boundaries.shp")
 NDVI<-mask(NDVI,Plantation_Boundaries,inverse=TRUE)
 Land_Use<-mask(Land_Use,Plantation_Boundaries,inverse=TRUE)
@@ -2351,370 +2634,89 @@ write.csv(Caelifera,"Products/Occurrence_Caelifera_Data.csv",row.names=FALSE)
 write.csv(Ensifera,"Products/Occurrence_Ensifera_Data.csv",row.names=FALSE)
 rm(Caelifera,Ensifera,High,Intermediate,Low,hopper)
 
+# Raster correlations
+NDVI<-raster("Products/SDM_NDVI.tif")
+Land_Use<-raster("Products/SDM_Land_Use.tif")
+Rivers<-raster("Products/SDM_Rivers.tif")
+Elv<-raster("Products/SDM_Elv.tif")
+Aspect<-raster("Products/SDM_Aspect.tif")
+Plantation_Edge<-raster("Products/SDM_Plantation_Edge.tif")
+Fire_hist<-raster("Products/SDM_Fire_hist.tif")
+Stack<-stack(NDVI,Land_Use,Rivers,Elv,Aspect,Plantation_Edge,Fire_hist)
+jnk<-layerStats(Stack,'pearson',na.rm=T)
+corr_matrix<-jnk[["pearson correlation coefficient"]]
+corr_matrix
+'''
+                       SDM_NDVI     SDM_Land_Use   SDM_Rivers     SDM_Elv         SDM_Aspect    SDM_Plantation_Edge   SDM_Fire_hist
+SDM_NDVI               0.99999999   0.54273970     -0.18829174    -0.22187075     0.15317677      -0.04467688         0.44902443
+SDM_Land_Use          0.54273970    1.00000000     -0.16528368    -0.24076508     0.16390949      -0.05759286         0.52309394
+SDM_Rivers            -0.18829174   -0.16528368    0.99999999     0.23764179      -0.03963255     0.16909927          -0.17321863
+SDM_Elv               -0.22187075   -0.24076508    0.23764179     0.99999998      -0.05738102     0.28459798          -0.30358735
+SDM_Aspect            0.15317677    0.16390949     -0.03963255    -0.05738102     0.99999999      0.04941656          0.15820725
+SDM_Plantation_Edge   -0.04467688   -0.05759286    0.16909927     0.28459798      0.04941656      0.99999996          -0.27892126
+SDM_Fire_hist         0.4490244     0.52309394     -0.1732186      -0.3035873      0.1582072      -0.2789213           1.0000000
+'''
+rm(corr_matrix,jnk,Stack,NDVI,Land_Use,Rivers,Elv,Aspect,Plantation_Edge,Fire_hist)
+
 # Load environmental raster data
-Env<-load_var(path="~/Products/",
+Env<-load_var(path="~/Desktop/Products/",
               files=c("SDM_NDVI.tif","SDM_Land_Use.tif","SDM_Rivers.tif","SDM_Aspect.tif",
                       "SDM_Plantation_Edge.tif","SDM_Elv.tif","SDM_Fire_hist.tif"),
               format=".tif",Norm=TRUE,categorical="SDM_Land_Use.tif")
+
 # Load occurrence data for ALL SPECIES
-Occ<-load_occ(path="~/Products/",Env=Env,
+Occ<-load_occ(path="~/Desktop/Products/",Env=Env,
               file="Occurrence_Data.csv",Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",sep=",")
 # Perform stacked species distribution models 
 SDM<-stack_modelling(algorithms=c("RF","SVM"),Occurrences=Occ,Env=Env,cores=4,method="pSSDM",
-                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",metric="SES",rep=10,tmp=TRUE,
-                     save=TRUE,name="All_Species_SDM",path="~/Products/",
-                     cv="holdout",cv.param=c(0.7,1),ensemble.metric=c("AUC"),ensemble.thresh=c(0.7))
-# Variable importance 
-variable.importance<-as.data.frame(t(read.csv("Products/All_Species_SDM/Stack/Tables/VarImp.csv",row.names=1)))
-row.names(variable.importance)<-c("NDVI","Land Use","Dist Riv","Aspect",
-                                  "Dist Plan","Elv","Fire Hist")
-variable.importance<-dplyr::add_rownames(variable.importance,var="Variables")
-ggplot(variable.importance) +
-  geom_bar(aes(x=Variables,y=Mean),stat="identity",alpha=0.7) +
-  ylab("Variable relative contribution (%)\n") +
-  xlab("\nVariables") +
-  geom_errorbar(aes(x=Variables,ymin=Mean-SD,ymax=Mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(variable.importance) #7x5
-# Evaluate model
-evaluation<-as.data.frame(t(read.csv("Products/All_Species_SDM/Stack/Tables/StackEval.csv",row.names=1)))
-row.names(evaluation)<-c("Rich Error","Prediction","Kappa","Specificity","Sensitivity","Jaccard")
-evaluation<-dplyr::add_rownames(evaluation,var="Variables")
-ggplot(evaluation) +
-  geom_bar(aes(x=Variables,y=mean),stat="identity",alpha=0.7) +
-  ylab("Evaluation metric contribution\n") +
-  xlab("\nMetrics") +
-  geom_errorbar(aes(x=Variables,ymin=mean-SD,ymax=mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(evaluation) #7x5
-# Algorithm correlation
-correlation<-as.data.frame(read.csv("Products/All_Species_SDM/Stack/Tables/AlgoCorr.csv"))
-correlation<-pivot_longer(data=correlation, 
-                          cols=-c(1), 
-                          names_to="Variable", 
-                          values_to="Correlation")
-ggplot(data=correlation,mapping=aes(x=X,y=Variable,fill=Correlation)) +
-  geom_tile(aes(fill=Correlation)) +
-  geom_text(aes(label = round(Correlation, 3))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  xlab(label="Variable")+
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(correlation,Occ,SDM)#5x4
+                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",rep=10,tmp=TRUE,
+                     save=TRUE,name="All_Species_SDM",path="~/Desktop/Products/")
+rm(Occ,SDM)
 
 # Load occurrence data for LOW SPECIES
-Occ<-load_occ(path="~/Products/",Env=Env,
+Occ<-load_occ(path="~/Desktop/Products/",Env=Env,
               file="Occurrence_Low_Data.csv",Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",sep=",")
 # Perform stacked species distribution models 
 SDM<-stack_modelling(algorithms=c("RF","SVM"),Occurrences=Occ,Env=Env,cores=4,method="pSSDM",
-                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",metric="SES",rep=10,tmp=TRUE,
-                     save=TRUE,name="Low_Species_SDM",path="~/Products/",
-                     cv="holdout",cv.param=c(0.7,1),ensemble.metric=c("AUC"),ensemble.thresh=c(0.7))
-# Variable importance 
-variable.importance<-as.data.frame(t(read.csv("Products/Low_Species_SDM/Stack/Tables/VarImp.csv",row.names=1)))
-row.names(variable.importance)<-c("NDVI","Land Use","Dist Riv","Aspect",
-                                  "Dist Plan","Elv","Fire Hist")
-variable.importance<-dplyr::add_rownames(variable.importance,var="Variables")
-ggplot(variable.importance) +
-  geom_bar(aes(x=Variables,y=Mean),stat="identity",alpha=0.7) +
-  ylab("Variable relative contribution (%)\n") +
-  xlab("\nVariables") +
-  geom_errorbar(aes(x=Variables,ymin=Mean-SD,ymax=Mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(variable.importance) #7x5
-# Evaluate model
-evaluation<-as.data.frame(t(read.csv("Products/Low_Species_SDM/Stack/Tables/StackEval.csv",row.names=1)))
-row.names(evaluation)<-c("Rich Error","Prediction","Kappa","Specificity","Sensitivity","Jaccard")
-evaluation<-dplyr::add_rownames(evaluation,var="Variables")
-ggplot(evaluation) +
-  geom_bar(aes(x=Variables,y=mean),stat="identity",alpha=0.7) +
-  ylab("Evaluation metric contribution\n") +
-  xlab("\nMetrics") +
-  geom_errorbar(aes(x=Variables,ymin=mean-SD,ymax=mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(evaluation) #7x5
-# Algorithm correlation
-correlation<-as.data.frame(read.csv("Products/Low_Species_SDM/Stack/Tables/AlgoCorr.csv"))
-correlation<-pivot_longer(data=correlation, 
-                          cols=-c(1), 
-                          names_to="Variable", 
-                          values_to="Correlation")
-ggplot(data=correlation,mapping=aes(x=X,y=Variable,fill=Correlation)) +
-  geom_tile(aes(fill=Correlation)) +
-  geom_text(aes(label = round(Correlation, 3))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  xlab(label="Variable")+
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(correlation,Occ,SDM)#5x4
+                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",rep=10,tmp=TRUE,
+                     save=TRUE,name="Low_Species_SDM",path="~/Desktop/Products/")
+rm(Occ,SDM)
 
 # Load occurrence data for Intermediate SPECIES
-Occ<-load_occ(path="~/Products/",Env=Env,
+Occ<-load_occ(path="~/Desktop/Products/",Env=Env,
               file="Occurrence_Intermediate_Data.csv",Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",sep=",")
 # Perform stacked species distribution models 
 SDM<-stack_modelling(algorithms=c("RF","SVM"),Occurrences=Occ,Env=Env,cores=4,method="pSSDM",
-                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",metric="SES",rep=10,tmp=TRUE,
-                     save=TRUE,name="Intermediate_Species_SDM",path="~/Products/",
-                     cv="holdout",cv.param=c(0.7,1),ensemble.metric=c("AUC"),ensemble.thresh=c(0.7))
-# Variable importance 
-variable.importance<-as.data.frame(t(read.csv("Products/Intermediate_Species_SDM/Stack/Tables/VarImp.csv",row.names=1)))
-row.names(variable.importance)<-c("NDVI","Land Use","Dist Riv","Aspect",
-                                  "Dist Plan","Elv","Fire Hist")
-variable.importance<-dplyr::add_rownames(variable.importance,var="Variables")
-ggplot(variable.importance) +
-  geom_bar(aes(x=Variables,y=Mean),stat="identity",alpha=0.7) +
-  ylab("Variable relative contribution (%)\n") +
-  xlab("\nVariables") +
-  geom_errorbar(aes(x=Variables,ymin=Mean-SD,ymax=Mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(variable.importance) #7x5
-# Evaluate model
-evaluation<-as.data.frame(t(read.csv("Products/Intermediate_Species_SDM/Stack/Tables/StackEval.csv",row.names=1)))
-row.names(evaluation)<-c("Rich Error","Prediction","Kappa","Specificity","Sensitivity","Jaccard")
-evaluation<-dplyr::add_rownames(evaluation,var="Variables")
-ggplot(evaluation) +
-  geom_bar(aes(x=Variables,y=mean),stat="identity",alpha=0.7) +
-  ylab("Evaluation metric contribution\n") +
-  xlab("\nMetrics") +
-  geom_errorbar(aes(x=Variables,ymin=mean-SD,ymax=mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(evaluation) #7x5
-# Algorithm correlation
-correlation<-as.data.frame(read.csv("Products/Intermediate_Species_SDM/Stack/Tables/AlgoCorr.csv"))
-correlation<-pivot_longer(data=correlation, 
-                          cols=-c(1), 
-                          names_to="Variable", 
-                          values_to="Correlation")
-ggplot(data=correlation,mapping=aes(x=X,y=Variable,fill=Correlation)) +
-  geom_tile(aes(fill=Correlation)) +
-  geom_text(aes(label = round(Correlation, 3))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  xlab(label="Variable")+
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(correlation,Occ,SDM)#5x4
+                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",rep=10,tmp=TRUE,
+                     save=TRUE,name="Intermediate_Species_SDM",path="~/Desktop/Products/")
+rm(Occ,SDM)
 
 # Load occurrence data for High SPECIES
-Occ<-load_occ(path="~/Products/",Env=Env,
+Occ<-load_occ(path="~/Desktop/Products/",Env=Env,
               file="Occurrence_High_Data.csv",Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",sep=",")
 # Perform stacked species distribution models 
 SDM<-stack_modelling(algorithms=c("RF","SVM"),Occurrences=Occ,Env=Env,cores=4,method="pSSDM",
-                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",metric="SES",rep=10,tmp=TRUE,
-                     save=TRUE,name="High_Species_SDM",path="~/Products/",
-                     cv="holdout",cv.param=c(0.7,1),ensemble.metric=c("AUC"),ensemble.thresh=c(0.7))
-# Variable importance 
-variable.importance<-as.data.frame(t(read.csv("Products/High_Species_SDM/Stack/Tables/VarImp.csv",row.names=1)))
-row.names(variable.importance)<-c("NDVI","Land Use","Dist Riv","Aspect",
-                                  "Dist Plan","Elv","Fire Hist")
-variable.importance<-dplyr::add_rownames(variable.importance,var="Variables")
-ggplot(variable.importance) +
-  geom_bar(aes(x=Variables,y=Mean),stat="identity",alpha=0.7) +
-  ylab("Variable relative contribution (%)\n") +
-  xlab("\nVariables") +
-  geom_errorbar(aes(x=Variables,ymin=Mean-SD,ymax=Mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(variable.importance) #7x5
-# Evaluate model
-evaluation<-as.data.frame(t(read.csv("Products/High_Species_SDM/Stack/Tables/StackEval.csv",row.names=1)))
-row.names(evaluation)<-c("Rich Error","Prediction","Kappa","Specificity","Sensitivity","Jaccard")
-evaluation<-dplyr::add_rownames(evaluation,var="Variables")
-ggplot(evaluation) +
-  geom_bar(aes(x=Variables,y=mean),stat="identity",alpha=0.7) +
-  ylab("Evaluation metric contribution\n") +
-  xlab("\nMetrics") +
-  geom_errorbar(aes(x=Variables,ymin=mean-SD,ymax=mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(evaluation) #7x5
-# Algorithm correlation
-correlation<-as.data.frame(read.csv("Products/High_Species_SDM/Stack/Tables/AlgoCorr.csv"))
-correlation<-pivot_longer(data=correlation, 
-                          cols=-c(1), 
-                          names_to="Variable", 
-                          values_to="Correlation")
-ggplot(data=correlation,mapping=aes(x=X,y=Variable,fill=Correlation)) +
-  geom_tile(aes(fill=Correlation)) +
-  geom_text(aes(label = round(Correlation, 3))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  xlab(label="Variable")+
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(correlation,Occ,SDM)#5x4
+                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",rep=10,tmp=TRUE,
+                     save=TRUE,name="High_Species_SDM",path="~/Desktop/Products/")
+rm(Occ,SDM)
 
 # Load occurrence data for Caelifera SPECIES
-Occ<-load_occ(path="~/Products/",Env=Env,
+Occ<-load_occ(path="~/Desktop/Products/",Env=Env,
               file="Occurrence_Caelifera_Data.csv",Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",sep=",")
 # Perform stacked species distribution models 
 SDM<-stack_modelling(algorithms=c("RF","SVM"),Occurrences=Occ,Env=Env,cores=4,method="pSSDM",
-                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",metric="SES",rep=10,tmp=TRUE,
-                     save=TRUE,name="Caelifera_Species_SDM",path="~/Products/",
-                     cv="holdout",cv.param=c(0.7,1),ensemble.metric=c("AUC"),ensemble.thresh=c(0.7))
-# Variable importance 
-variable.importance<-as.data.frame(t(read.csv("Products/Caelifera_Species_SDM/Stack/Tables/VarImp.csv",row.names=1)))
-row.names(variable.importance)<-c("NDVI","Land Use","Dist Riv","Aspect",
-                                  "Dist Plan","Elv","Fire Hist")
-variable.importance<-dplyr::add_rownames(variable.importance,var="Variables")
-ggplot(variable.importance) +
-  geom_bar(aes(x=Variables,y=Mean),stat="identity",alpha=0.7) +
-  ylab("Variable relative contribution (%)\n") +
-  xlab("\nVariables") +
-  geom_errorbar(aes(x=Variables,ymin=Mean-SD,ymax=Mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(variable.importance) #7x5
-# Evaluate model
-evaluation<-as.data.frame(t(read.csv("Products/Caelifera_Species_SDM/Stack/Tables/StackEval.csv",row.names=1)))
-row.names(evaluation)<-c("Rich Error","Prediction","Kappa","Specificity","Sensitivity","Jaccard")
-evaluation<-dplyr::add_rownames(evaluation,var="Variables")
-ggplot(evaluation) +
-  geom_bar(aes(x=Variables,y=mean),stat="identity",alpha=0.7) +
-  ylab("Evaluation metric contribution\n") +
-  xlab("\nMetrics") +
-  geom_errorbar(aes(x=Variables,ymin=mean-SD,ymax=mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(evaluation) #7x5
-# Algorithm correlation
-correlation<-as.data.frame(read.csv("Products/Caelifera_Species_SDM/Stack/Tables/AlgoCorr.csv"))
-correlation<-pivot_longer(data=correlation, 
-                          cols=-c(1), 
-                          names_to="Variable", 
-                          values_to="Correlation")
-ggplot(data=correlation,mapping=aes(x=X,y=Variable,fill=Correlation)) +
-  geom_tile(aes(fill=Correlation)) +
-  geom_text(aes(label = round(Correlation, 3))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  xlab(label="Variable")+
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(correlation,Occ,SDM)#5x4
+                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",rep=10,tmp=TRUE,
+                     save=TRUE,name="Caelifera_Species_SDM",path="~/Desktop/Products/")
+rm(Occ,SDM)
 
 # Load occurrence data for Ensifera SPECIES
-Occ<-load_occ(path="~/Products/",Env=Env,
+Occ<-load_occ(path="~/Desktop/Products/",Env=Env,
               file="Occurrence_Ensifera_Data.csv",Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",sep=",")
 # Perform stacked species distribution models 
 SDM<-stack_modelling(algorithms=c("RF","SVM"),Occurrences=Occ,Env=Env,cores=4,method="pSSDM",
-                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",metric="SES",rep=10,tmp=TRUE,
-                     save=TRUE,name="Ensifera_Species_SDM",path="~/Products/",
-                     cv="holdout",cv.param=c(0.7,1),ensemble.metric=c("AUC"),ensemble.thresh=c(0.7))
-# Variable importance 
-variable.importance<-as.data.frame(t(read.csv("Products/Ensifera_Species_SDM/Stack/Tables/VarImp.csv",row.names=1)))
-row.names(variable.importance)<-c("NDVI","Land Use","Dist Riv","Aspect",
-                                  "Dist Plan","Elv","Fire Hist")
-variable.importance<-dplyr::add_rownames(variable.importance,var="Variables")
-ggplot(variable.importance) +
-  geom_bar(aes(x=Variables,y=Mean),stat="identity",alpha=0.7) +
-  ylab("Variable relative contribution (%)\n") +
-  xlab("\nVariables") +
-  geom_errorbar(aes(x=Variables,ymin=Mean-SD,ymax=Mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(variable.importance) #7x5
-# Evaluate model
-evaluation<-as.data.frame(t(read.csv("Products/Ensifera_Species_SDM/Stack/Tables/StackEval.csv",row.names=1)))
-row.names(evaluation)<-c("Rich Error","Prediction","Kappa","Specificity","Sensitivity","Jaccard")
-evaluation<-dplyr::add_rownames(evaluation,var="Variables")
-ggplot(evaluation) +
-  geom_bar(aes(x=Variables,y=mean),stat="identity",alpha=0.7) +
-  ylab("Evaluation metric contribution\n") +
-  xlab("\nMetrics") +
-  geom_errorbar(aes(x=Variables,ymin=mean-SD,ymax=mean+SD),alpha=0.9,width=0.2) +
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(evaluation) #7x5
-# Algorithm correlation
-correlation<-as.data.frame(read.csv("Products/Ensifera_Species_SDM/Stack/Tables/AlgoCorr.csv"))
-correlation<-pivot_longer(data=correlation, 
-                          cols=-c(1), 
-                          names_to="Variable", 
-                          values_to="Correlation")
-ggplot(data=correlation,mapping=aes(x=X,y=Variable,fill=Correlation)) +
-  geom_tile(aes(fill=Correlation)) +
-  geom_text(aes(label = round(Correlation, 3))) +
-  scale_fill_gradient(low = "white", high = "red") +
-  xlab(label="Variable")+
-  theme(axis.title=element_text(size=14),
-        axis.text=element_text(size=13,colour="black"),
-        axis.ticks=element_line(size=0.8,colour="black"),
-        axis.line=element_line(size=0.8,colour="black"),
-        panel.grid=element_blank(),
-        panel.background=element_blank())
-rm(correlation,Occ,SDM,Env)#5x4
+                     Xcol="Long_X",Ycol="Lat_Y",Spcol="Species",rep=10,tmp=TRUE,
+                     save=TRUE,name="Ensifera_Species_SDM",path="~/Desktop/Products/")
+rm(Occ,SDM,Env)
 
 #### Identify overlapping areas ####
 # Load maps and select highest 95% of suitable pixel values

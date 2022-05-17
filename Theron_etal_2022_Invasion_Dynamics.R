@@ -1050,19 +1050,19 @@ Con_NBR_2018<-raster::extract(NBR_2018_Dist,Con_Points,method="simple")
 Con_NBR_2017<-raster::extract(NBR_2017_Dist,Con_Points,method="simple")
 Con_NBR_2016<-raster::extract(NBR_2016_Dist,Con_Points,method="simple")
 # Load fire histories from google earth engine
-Fire_2020<-read.csv("Excel_Sheets/New_NBR_2020.csv")
+Fire_2020<-read.csv("Excel_Sheets/NBR_2020.csv")
 Fire_2020<-Fire_2020[order(Fire_2020$FID,decreasing=FALSE),]
 Fire_2020<-Fire_2020$mean
-Fire_2019<-read.csv("Excel_Sheets/New_NBR_2019.csv")
+Fire_2019<-read.csv("Excel_Sheets/NBR_2019.csv")
 Fire_2019<-Fire_2019[order(Fire_2019$FID,decreasing=FALSE),]
 Fire_2019<-Fire_2019$mean
-Fire_2018<-read.csv("Excel_Sheets/New_NBR_2018.csv")
+Fire_2018<-read.csv("Excel_Sheets/NBR_2018.csv")
 Fire_2018<-Fire_2018[order(Fire_2018$FID,decreasing=FALSE),]
 Fire_2018<-Fire_2018$mean
-Fire_2017<-read.csv("Excel_Sheets/New_NBR_2017.csv")
+Fire_2017<-read.csv("Excel_Sheets/NBR_2017.csv")
 Fire_2017<-Fire_2017[order(Fire_2017$FID,decreasing=FALSE),]
 Fire_2017<-Fire_2017$mean
-Fire_2016<-read.csv("Excel_Sheets/New_NBR_2016.csv")
+Fire_2016<-read.csv("Excel_Sheets/NBR_2016.csv")
 Fire_2016<-Fire_2016[order(Fire_2016$FID,decreasing=FALSE),]
 Fire_2016<-Fire_2016$mean
 
